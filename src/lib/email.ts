@@ -225,7 +225,13 @@ export function renderDigest(input: DigestInput): RenderedDigest {
   }
 
   if (ranked.length) {
-    body.push(section('Ranked for you', `${ranked.length} new, ordered by fit to your focus areas.`));
+    const urgentFirst = ranked.filter((e) => urgency(e, today).flagged).length;
+    body.push(section(
+      'Ranked for you',
+      urgentFirst
+        ? `${urgentFirst} closing or starting within 7 days, shown first. ${ranked.length} new in all.`
+        : `${ranked.length} new, ordered by fit to your focus areas.`
+    ));
     body.push('<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">');
     ranked.forEach((e, i) => body.push(eventBlock(e, i + 1, today)));
     body.push('</table></td></tr>');

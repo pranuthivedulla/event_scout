@@ -13,6 +13,7 @@ import {
 } from './db';
 import { renderDigest, sendDigest, type RenderedDigest } from './email';
 import { buildDeadlineScript, synthesise } from './tts';
+import { sortForDisplay } from './rank';
 import type { ScoutEvent, SourceRun } from './types';
 
 export interface DeliverInput {
@@ -37,8 +38,12 @@ export interface DeliverResult {
 }
 
 export async function prepareAndSend(input: DeliverInput): Promise<DeliverResult> {
-  const { kind, to, newEvents, calendar, sourceRuns, today } = input;
+  const { kind, to, calendar, sourceRuns, today } = input;
   const sentAt = new Date();
+
+  // Flagged-and-relevant to the top. The 7-day flag is the point of the
+  // digest; it must not land at number fourteen.
+  const newEvents = sortForDisplay(input.newEvents, today);
 
   // Rendered once without audio, purely to get the counts for the row.
   const provisional = renderDigest({ newEvents, calendar, sourceRuns, sentAt, today });

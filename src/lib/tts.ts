@@ -18,8 +18,10 @@ import { urgency, todayISO } from './dates';
 /** Spell out acronyms so they are read as letters, not as a word. */
 function speakable(s: string): string {
   return s
-    // organisers bolt the venue or host on the end; it is noise when spoken
-    .split('|')[0]
+    // A pipe is a pause, not a truncation point: organisers put the venue
+    // there, but just as often the informative half of the title.
+    .replace(/\s*\|\s*/g, ', ')
+    // a trailing "(BLR)" or "[Mumbai]" is always noise when read aloud
     .replace(/\s*[([][^)\]]*[)\]]\s*$/, '')
     // ETBFSI -> E T B F S I, but leave ordinary Capitalised Words alone
     .replace(/\b[A-Z]{2,6}\b/g, (m) => m.split('').join(' '))

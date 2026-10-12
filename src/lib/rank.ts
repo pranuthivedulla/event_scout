@@ -9,7 +9,7 @@
 
 import { LEVEL_WEIGHT, MAX_NEW_EVENTS, type FocusLevel } from '@/config';
 import type { ScoutEvent, Settings } from './types';
-import { toUTCDay } from './dates';
+import { toUTCDay, urgency, todayISO } from './dates';
 
 /** Which configured focus area did Gemini say this matched, and at what level? */
 export function levelFor(ev: ScoutEvent, settings: Settings): FocusLevel | null {
@@ -41,14 +41,33 @@ export function rankValue(ev: ScoutEvent, settings: Settings): number {
 }
 
 /**
- * Sort: rank value desc, then soonest event first, then title for stability.
+ * Is this event urgent AND worth his time?
+ *
+ * The 7-day flag is the point of the digest, so a flagged event must not be
+ * buried at number fourteen. But promoting EVERY flagged event would open the
+ * digest on noise: with no source publishing deadlines the flag fires on
+ * event-date proximity, and the soonest events are routinely the ones that
+ * match no focus area. So urgency promotes an event only once it is relevant.
+ * Urgent-but-unmatched events keep their place in the tail, visible as ever.
+ */
+export function urgentAndRelevant(ev: ScoutEvent, today: string): boolean {
+  return (ev.score ?? 0) > 0 && urgency(ev, today).flagged;
+}
+
+/**
+ * Sort: anything urgent and relevant first, then rank value desc, then soonest
+ * event, then title for stability.
+ *
  * City is NOT a ranking factor — Bengaluru, Mumbai and Hyderabad rank equally
  * (decided 20:57, nine-checks).
  */
-export function rank(events: ScoutEvent[], settings: Settings): ScoutEvent[] {
+export function rank(events: ScoutEvent[], settings: Settings, today: string = todayISO()): ScoutEvent[] {
   return events
     .map((ev) => ({ ...ev, rank_value: rankValue(ev, settings) }))
     .sort((a, b) => {
+      const ua = urgentAndRelevant(a, today) ? 1 : 0;
+      const ub = urgentAndRelevant(b, today) ? 1 : 0;
+      if (ua !== ub) return ub - ua;
       if (b.rank_value! !== a.rank_value!) return b.rank_value! - a.rank_value!;
       const da = toUTCDay(a.start_date) ?? Number.MAX_SAFE_INTEGER;
       const db = toUTCDay(b.start_date) ?? Number.MAX_SAFE_INTEGER;
@@ -121,4 +140,26 @@ export function mergeDuplicates(events: ScoutEvent[]): ScoutEvent[] {
     out.push(base);
   }
   return out;
+}
+
+/**
+ * Re-sort already-stored events for display.
+ *
+ * rank_value is computed once, when the run scores the event, and saved. But
+ * urgency changes every single day, so the order the email and the dashboard
+ * show has to be worked out at render time, not read from the database.
+ */
+export function sortForDisplay(events: ScoutEvent[], today: string): ScoutEvent[] {
+  return [...events].sort((a, b) => {
+    const ua = urgentAndRelevant(a, today) ? 1 : 0;
+    const ub = urgentAndRelevant(b, today) ? 1 : 0;
+    if (ua !== ub) return ub - ua;
+    const ra = a.rank_value ?? 0;
+    const rb = b.rank_value ?? 0;
+    if (rb !== ra) return rb - ra;
+    const da = toUTCDay(a.start_date) ?? Number.MAX_SAFE_INTEGER;
+    const db = toUTCDay(b.start_date) ?? Number.MAX_SAFE_INTEGER;
+    if (da !== db) return da - db;
+    return a.title.localeCompare(b.title);
+  });
 }

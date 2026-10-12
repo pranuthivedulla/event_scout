@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 
 import { isISODate, daysBetween, addDays, urgency, calendarDate, googleCalendarUrl, formatRange, pgDateToISO } from '../src/lib/dates';
 import { hardFilter, matchCity, dropSummary } from '../src/lib/filters';
-import { rank, applyCap, rankValue, mergeDuplicates, fingerprint } from '../src/lib/rank';
+import { rank, applyCap, rankValue, mergeDuplicates, fingerprint, sortForDisplay } from '../src/lib/rank';
 import { buildDeadlineScript } from '../src/lib/tts';
 import type { ScoutEvent, Settings } from '../src/lib/types';
 
@@ -386,4 +386,47 @@ test('titles are tidied for speech without changing the event', () => {
 test('acronyms are spelled out so they are read as letters', () => {
   const e = ev({ title: 'ETBFSI Converge', score: 5, start_date: '2026-10-15' });
   assert.ok(buildDeadlineScript([e], [], TODAY)!.text.includes('E T B F S I'));
+});
+
+// --------------------------------------------- urgent events sort to the top
+
+test('an urgent, relevant event outranks a better-fitting distant one', () => {
+  // The 7-day flag is the point of the digest. A flagged event must not be
+  // buried at number fourteen just because something else scored higher.
+  const perfectButFar = ev({ title: 'ETBFSI Converge', score: 5, start_date: '2026-12-10',
+                             focus_area: 'Payments and digital payments' });
+  const goodAndUrgent = ev({ title: 'Payments Roundtable', score: 3, start_date: '2026-10-15',
+                             focus_area: 'Payments and digital payments' });
+  const out = rank([perfectButFar, goodAndUrgent], settings, TODAY);
+  assert.equal(out[0].title, 'Payments Roundtable');
+  assert.equal(out[1].title, 'ETBFSI Converge');
+});
+
+test('an urgent event that matches NO focus area is not promoted', () => {
+  // Every flagged event today is a 0/5 meetup, because the flag falls back to
+  // event-date proximity and the soonest events are the least relevant.
+  // Promoting those would open the digest on noise.
+  const noiseButUrgent = ev({ title: 'Swift Bengaluru and Okta', score: 0, start_date: '2026-10-14' });
+  const relevantButFar = ev({ title: 'ETBFSI Converge', score: 5, start_date: '2026-12-10',
+                              focus_area: 'Payments and digital payments' });
+  const out = rank([noiseButUrgent, relevantButFar], settings, TODAY);
+  assert.equal(out[0].title, 'ETBFSI Converge', 'a 0/5 event never leads the digest');
+  assert.equal(out.length, 2, 'but it is still present, never hidden');
+});
+
+test('among several urgent and relevant events, fit still decides', () => {
+  const a = ev({ title: 'Weak fit, urgent', score: 1, start_date: '2026-10-15',
+                 focus_area: 'Fintech and BFSI at large' });
+  const b = ev({ title: 'Strong fit, urgent', score: 5, start_date: '2026-10-16',
+                 focus_area: 'Payments and digital payments' });
+  const out = rank([a, b], settings, TODAY);
+  assert.equal(out[0].title, 'Strong fit, urgent');
+});
+
+test('sortForDisplay honours the same rule using the stored rank value', () => {
+  const far = ev({ title: 'Far', score: 5, start_date: '2026-12-10', rank_value: 150 });
+  const urgent = ev({ title: 'Urgent', score: 2, start_date: '2026-10-15', rank_value: 60 });
+  const noise = ev({ title: 'Noise', score: 0, start_date: '2026-10-13', rank_value: 0 });
+  const out = sortForDisplay([far, noise, urgent], TODAY);
+  assert.deepEqual(out.map((e) => e.title), ['Urgent', 'Far', 'Noise']);
 });

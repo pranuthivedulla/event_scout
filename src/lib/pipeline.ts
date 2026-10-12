@@ -291,7 +291,7 @@ export async function runPipeline(
   tokens += scored.tokens;
 
   log('rank + cap');
-  const ranked = applyCap(rank(scored.events, settings), MAX_NEW_EVENTS);
+  const ranked = applyCap(rank(scored.events, settings, today), MAX_NEW_EVENTS);
 
   return {
     events: ranked,

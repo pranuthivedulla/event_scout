@@ -6,6 +6,7 @@ import {
   latestSourceRuns, latestRun, weeklyActivity, splits, getSettings,
 } from '@/lib/db';
 import { todayISO, urgency, formatDay, daysBetween, isISODate } from '@/lib/dates';
+import { sortForDisplay } from '@/lib/rank';
 import type { ScoutEvent } from '@/lib/types';
 import { DISPLAY_TZ } from '@/config';
 
@@ -30,10 +31,14 @@ export default async function ThisWeek() {
     );
   }
 
-  const [events, calendar, clicked, sources, run, activity, split, settings] = await Promise.all([
+  const [stored, calendar, clicked, sources, run, activity, split, settings] = await Promise.all([
     upcomingEvents(60), calendarEvents(), clickedEventIds(),
     latestSourceRuns(), latestRun(), weeklyActivity(4), splits(), getSettings(),
   ]);
+
+  // Urgency changes daily, so the order is worked out now, not read from the
+  // database. Anything flagged AND relevant comes first.
+  const events = sortForDisplay(stored, today);
 
   // 0/5 events are never hidden (the brief forbids it) but they sit below,
   // so the top of the page stays worth reading.
@@ -74,7 +79,9 @@ export default async function ThisWeek() {
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
             <h2 className="h2">Ranked for you</h2>
             <span className="note">
-              {ranked.length} matched your focus areas, ordered by fit
+              {closingSoon.filter((e) => (e.score ?? 0) > 0).length > 0
+                ? 'Closing or starting within 7 days first, then by fit'
+                : `${ranked.length} matched your focus areas, ordered by fit`}
             </span>
           </div>
 
