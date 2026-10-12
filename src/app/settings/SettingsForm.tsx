@@ -192,6 +192,7 @@ export function SettingsForm({ initial, updatedAt }: { initial: Settings; update
           <li>No source we have found publishes registration deadlines, so most events read &ldquo;Deadline unknown&rdquo;. That is honest, not broken.</li>
           <li>Add to calendar records your interest and nothing more. The system never knows, and never claims, that you registered.</li>
           <li>If a source fails, the digest still sends and names the one that failed.</li>
+          <li>When something urgent also matches a focus area, the email links to a short spoken summary you can play on the way in. Weeks with nothing both urgent and relevant carry no clip.</li>
         </ul>
       </section>
 

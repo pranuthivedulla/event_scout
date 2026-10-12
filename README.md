@@ -62,6 +62,33 @@ test asserts the word "closes" cannot appear without a stated deadline.
 
 ---
 
+## The spoken deadline note
+
+When something is **both** closing or starting within seven days **and** matches
+a focus area, the digest carries a link to a short spoken summary — a player
+page with the transcript printed underneath it.
+
+It is a link, not a player. No mainstream email client runs `<audio>` or
+script, so embedding one would simply show nothing in Gmail and Outlook.
+
+The transcript is composed in plain code from the same rows the email uses,
+with dates computed by `dates.ts`. Gemini TTS is handed a finished script and
+does nothing but read it, so no model can introduce a date, a count or a
+deadline. A stated deadline is spoken as *"closes for registration"*; an event
+date is spoken as *"takes place"*, and the absence of a published deadline is
+said out loud — the same distinction the email and the dashboard hold.
+
+**It is silent some weeks, by design.** An earlier version read out whatever
+was soonest and spent 47 seconds on iOS meetups and a wellness talk, because
+the flag fires on event-date proximity and the nearest events are routinely
+the least relevant. Anything scoring 0/5 is no longer read aloud. Those events
+remain in the email and on the dashboard — nothing is hidden by focus area —
+they are simply not spoken. Given how thin and far-out the real BFSI supply
+is, that means some digests carry no clip at all. That is the feature working,
+not failing.
+
+---
+
 ## Setup
 
 Needs Node 20+.
