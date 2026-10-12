@@ -396,6 +396,36 @@ button { font-family: inherit; }
 .stack-controls { display: flex; align-items: center; gap: 12px; }
 .stack-controls .chip { min-width: 42px; text-align: center; font-size: 16px; }
 
+/* The swap itself. The outgoing card drops forward and tips before falling to
+   the back, so the eye follows one card leaving rather than the whole stack
+   shuffling. Everything behind it promotes on the plain transition above. */
+.stack-card.is-leaving {
+  transition: none;
+  animation: card-eject .62s cubic-bezier(.33, .01, .28, 1) forwards;
+}
+
+@keyframes card-eject {
+  0% {
+    transform: translateY(0) translateZ(0) scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  38% {
+    /* forward and out of the stack, tipping as it goes */
+    transform: translateY(96px) translateZ(130px) scale(1.04) rotate(-7deg);
+    opacity: 1;
+  }
+  62% {
+    transform: translateY(120px) translateZ(-40px) scale(.94) rotate(-4deg);
+    opacity: .72;
+  }
+  100% {
+    /* settles into whatever slot it now occupies at the back */
+    transform: var(--rest-transform);
+    opacity: var(--rest-opacity);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .stack-card { transition: none; }
+  .stack-card.is-leaving { animation: none; }
 }

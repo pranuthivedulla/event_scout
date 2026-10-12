@@ -38,6 +38,8 @@ export function DigestStack({
   const [index, setIndex] = useState(startIndex);
   const [html, setHtml] = useState(initialHtml);
   const [loading, setLoading] = useState(false);
+  /** The card currently being ejected, so it animates out instead of sliding back. */
+  const [leaving, setLeaving] = useState<number | null>(null);
 
   const current = digests[index];
 
@@ -60,7 +62,19 @@ export function DigestStack({
 
   if (!digests.length) return null;
 
-  const go = (next: number) => setIndex((next + digests.length) % digests.length);
+  /**
+   * The swap: the card at the front is ejected — it drops forward, tips, and
+   * only then falls to the back of the stack — while everything behind it
+   * promotes one slot. Without the eject the front card simply transitions to
+   * its new position, which reads as sliding backwards THROUGH the others.
+   */
+  const go = (next: number) => {
+    const target = (next + digests.length) % digests.length;
+    if (target === index) return;
+    setLeaving(digests[index].id);
+    setIndex(target);
+    window.setTimeout(() => setLeaving(null), 620);
+  };
 
   const fmt = (iso: string) =>
     new Intl.DateTimeFormat('en-GB', {
@@ -80,20 +94,28 @@ export function DigestStack({
           if (rel < 0) rel += digests.length;
           const hidden = rel > DEPTH;
 
+          const resting = `translateY(${rel * 16}px) translateZ(${-rel * 70}px) scale(${1 - rel * 0.045})`;
+          const restOpacity = hidden ? 0 : 1 - rel * 0.16;
+          const isLeaving = leaving === d.id;
+
           return (
             <button
               key={d.id}
               type="button"
-              className={`stack-card ${rel === 0 ? 'is-front' : ''}`}
+              className={`stack-card ${rel === 0 ? 'is-front' : ''} ${isLeaving ? 'is-leaving' : ''}`}
               aria-current={rel === 0}
               aria-hidden={hidden}
               tabIndex={hidden ? -1 : 0}
               onClick={() => (rel === 0 ? null : go(i))}
               style={{
-                transform: `translateY(${rel * 16}px) translateZ(${-rel * 70}px) scale(${1 - rel * 0.045})`,
-                opacity: hidden ? 0 : 1 - rel * 0.16,
-                zIndex: digests.length - rel,
+                transform: resting,
+                opacity: restOpacity,
+                // the ejecting card must sit above the stack while it drops out
+                zIndex: isLeaving ? digests.length + 1 : digests.length - rel,
                 pointerEvents: hidden ? 'none' : 'auto',
+                // where the keyframe lands it, once the eject is done
+                ['--rest-transform' as string]: resting,
+                ['--rest-opacity' as string]: String(restOpacity),
               }}
             >
               <span className="stack-top">
