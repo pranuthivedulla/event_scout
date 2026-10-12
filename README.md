@@ -156,9 +156,23 @@ The digest says so and still sends — it never pads.
 including Java training and a SAFe course in Worcester, Massachusetts labelled
 "Bangalore". Including it would have meant paying Gemini to score noise.
 
-**LinkedIn is not implemented.** It needs a paid Apify actor and was deferred on
-cost. Its absence is reported in the digest rather than hidden — the same code
-path as a source that failed.
+**LinkedIn is wired but returns nothing.** It runs through Apify on every
+Monday run and reports its own result into the digest's source line. It is not
+depended on, and here is why: `maximedupre/linkedin-events` runs cleanly
+(HTTP 201) and returns **zero events for every query tried**, including the
+broadest possible one with no city, no format and no timing filter.
+`memo23/linkedin-events-scraper` timed out at 150s on two consecutive
+attempts. Neither cost anything, since both bill per result.
+
+So the integration exists and the plumbing is real, but LinkedIn currently
+contributes no events. If an actor starts working, or a better one appears,
+`APIFY_ACTOR` swaps it without a code change. The field mapping follows the
+actor's published output schema and has **not** been exercised against live
+output, because there has been none.
+
+This matters more than the other gaps: the CIO roundtable Vikram missed was
+LinkedIn-only. That is exactly the hole this source was meant to close, and it
+is still open.
 
 **10times and e4m return 403** to a plain fetch. They are the densest Indian
 conference indexes and would need Apify too.

@@ -15,6 +15,7 @@ import { hardFilter, dropSummary, type FilterResult } from './filters';
 import { mergeDuplicates, rank, applyCap, fingerprint } from './rank';
 import { fetchLuma } from './sources/luma';
 import { fetchPageSource } from './sources/page';
+import { fetchApify } from './sources/apify';
 import { checkLinks } from './linkcheck';
 import { enrichEvents, scoreEvents } from './gemini';
 import { safeMessage } from './redact';
@@ -74,12 +75,15 @@ export async function stageFetch(
     const ran_at = new Date().toISOString();
     try {
       if (src.kind === 'apify') {
-        // LinkedIn. Deferred until APIFY_TOKEN exists. Reported, never fatal.
+        // LinkedIn. Optional by design: an empty or failing result is reported
+        // in the digest's source line and never breaks the run.
         if (!process.env.APIFY_TOKEN) {
           log(`  ${src.label}: not configured`);
           return { run: { source: src.label, ok: false, error: 'not configured', found: 0, ran_at }, found: [], tokens: 0 };
         }
-        return { run: { source: src.label, ok: false, error: 'not implemented yet', found: 0, ran_at }, found: [], tokens: 0 };
+        const found = await fetchApify(src.key, settings);
+        log(`  ${src.label}: ${found.length} events`);
+        return { run: { source: src.label, ok: true, error: null, found: found.length, ran_at }, found, tokens: 0 };
       }
 
       let found: ScoutEvent[] = [];

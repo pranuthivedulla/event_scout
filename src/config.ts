@@ -105,8 +105,13 @@ export const BUILT_IN_SOURCES: SourceDef[] = [
   { key: 'gff', label: 'Global Fintech Fest', kind: 'page', url: 'https://globalfintechfest.com/', enabled: false },
   { key: 'etbfsi-rss', label: 'ETBFSI news feed', kind: 'rss', url: 'https://bfsi.economictimes.indiatimes.com/rss/topstories', enabled: false },
 
-  // Needs APIFY_TOKEN. Absent token = reported as not configured, run continues.
-  { key: 'linkedin', label: 'LinkedIn', kind: 'apify', url: '', enabled: false },
+  /**
+   * LinkedIn via Apify. Enabled, but genuinely optional: spike 9 found the
+   * actor returns zero events for every query including the broadest, and a
+   * second actor timed out twice. It runs, it reports its own result into the
+   * digest's source line, and it is never depended on.
+   */
+  { key: 'linkedin', label: 'LinkedIn', kind: 'apify', url: '', enabled: true },
 ];
 
 export const USER_AGENT =

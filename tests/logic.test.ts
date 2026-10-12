@@ -15,6 +15,7 @@ import { hardFilter, matchCity, dropSummary } from '../src/lib/filters';
 import { rank, applyCap, rankValue, mergeDuplicates, fingerprint, sortForDisplay } from '../src/lib/rank';
 import { buildDeadlineScript } from '../src/lib/tts';
 import { redactSecrets, safeMessage } from '../src/lib/redact';
+import { parseScheduleText } from '../src/lib/sources/apify';
 import type { ScoutEvent, Settings } from '../src/lib/types';
 
 const TODAY = '2026-10-12'; // a Monday
@@ -488,4 +489,28 @@ test('a failed scoring pass does not reset an existing rank value', () => {
 test('an event scored zero still gets its rank value written', () => {
   const scoredZero = ev({ title: 'Genuinely irrelevant', score: 0, rank_value: 150 });
   assert.equal(rank([scoredZero], settings, TODAY)[0].rank_value, 0);
+});
+
+// ------------------------------------------------ LinkedIn schedule parsing
+
+test('LinkedIn schedule text is parsed in code, never guessed', () => {
+  // The brief forbids using a model for date work, and LinkedIn gives dates as
+  // free text. Anything ambiguous must come back null so the hard filter drops
+  // the event with "no date stated" rather than showing an invented day.
+  assert.equal(parseScheduleText('Oct 24, 2026'), '2026-10-24');
+  assert.equal(parseScheduleText('October 24 2026'), '2026-10-24');
+  assert.equal(parseScheduleText('24 Oct 2026'), '2026-10-24');
+  // a UTC timestamp is converted to IST, not sliced: 18:30Z is already the 25th
+  assert.equal(parseScheduleText('2026-10-24T18:30:00Z'), '2026-10-25');
+  assert.equal(parseScheduleText('2026-10-24'), '2026-10-24');
+  assert.equal(parseScheduleText('Thu, Oct 24, 2026, 6:30 PM'), '2026-10-24');
+});
+
+test('unparseable schedule text returns null rather than a guess', () => {
+  assert.equal(parseScheduleText('Next Thursday evening'), null);
+  assert.equal(parseScheduleText('Coming soon'), null);
+  assert.equal(parseScheduleText(''), null);
+  assert.equal(parseScheduleText(null), null);
+  assert.equal(parseScheduleText(undefined), null);
+  assert.equal(parseScheduleText('Feb 30, 2026'), null, 'an impossible date is not a date');
 });
