@@ -364,31 +364,98 @@ button { font-family: inherit; }
 
 .swap-card {
   position: absolute;
-  top: 50%;
+  /* The fan grows upward, so the cards sit low in the stage and climb from
+     there — otherwise the back of the stack rides over the heading. */
+  top: 64%;
   left: 42%;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 18px 20px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.74);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 16px 38px rgba(31, 76, 66, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  /* Tinted, not white: on a pale gradient a white card disappears. The green
+     wash keeps it in the palette and gives the stack readable depth. */
+  background: linear-gradient(150deg, rgba(214, 240, 227, 0.96), rgba(226, 238, 243, 0.94));
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 18px 40px rgba(20, 62, 52, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.85);
   transform-style: preserve-3d;
   will-change: transform;
   backface-visibility: hidden;
   cursor: pointer;
   overflow: hidden;
 }
+/* The front card is the one you act on: brighter, greener, and it opens the
+   email. It used to be the only card that did nothing on click. */
 .swap-card.is-front {
-  background: rgba(255, 255, 255, 0.94);
-  border-color: #bfe0d3;
-  box-shadow: 0 22px 48px rgba(31, 76, 66, 0.22), inset 0 1px 0 #fff;
-  cursor: default;
+  background: linear-gradient(150deg, #ffffff 0%, #eaf7f0 58%, #dff2e8 100%);
+  border-color: #8cc9b1;
+  box-shadow: 0 26px 56px rgba(20, 62, 52, 0.3), inset 0 1px 0 #fff;
+  cursor: pointer;
 }
+.swap-card.is-front:hover { border-color: var(--green-mid); }
 .swap-card:focus-visible { outline: 2px solid var(--green-mid); outline-offset: 3px; }
+
+.swap-cta {
+  margin-top: auto;
+  align-self: flex-start;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--green);
+}
+
+/* ---------------------------------------------------- email preview sheet */
+.preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: rgba(14, 44, 37, 0.42);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: fade-in .18s ease;
+}
+.preview-sheet {
+  width: min(760px, 100%);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 22px;
+  box-shadow: 0 30px 70px rgba(14, 44, 37, 0.34);
+  overflow: hidden;
+  animation: sheet-in .26s cubic-bezier(.22, .61, .36, 1);
+}
+.preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid #e2ece8;
+}
+.preview-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 320px;
+  border: 0;
+  background: #fff;
+  transition: opacity .2s ease;
+}
+@keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-backdrop, .preview-sheet { animation: none; }
+}
 
 .swap-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 15px; color: var(--ink); }
 .swap-subject { font-size: 14px; font-weight: 700; color: var(--ink); line-height: 1.4; }

@@ -34,6 +34,7 @@ export interface DigestRow {
  * advanced on its own would change the answer while you were reading it.
  */
 
+const MAX_VISIBLE = 4;  // cards shown behind the front one; deeper ones fade out
 const SLOT_X = 44;   // cardDistance
 const SLOT_Y = 40;   // verticalDistance
 const SKEW = 4;      // skewAmount
@@ -48,12 +49,13 @@ const RETURN_DELAY = 0.05;
 
 interface Slot { x: number; y: number; z: number; zIndex: number }
 
-const makeSlot = (i: number, total: number, sx: number, sy: number): Slot => ({
-  x: i * sx,
-  y: -i * sy,
-  z: -i * sx * 1.5,
-  zIndex: total - i,
-});
+const makeSlot = (i: number, total: number, sx: number, sy: number): Slot => {
+  // Beyond MAX_VISIBLE the cards stop fanning and fade, so a long archive does
+  // not grow a stack taller than the page.
+  const d = Math.min(i, MAX_VISIBLE);
+  return { x: d * sx, y: -d * sy, z: -d * sx * 1.5, zIndex: total - i };
+};
+const slotOpacity = (i: number) => (i > MAX_VISIBLE ? 0 : 1 - Math.min(i, MAX_VISIBLE) * 0.06);
 
 export function DigestStack({
   digests,
@@ -79,6 +81,8 @@ export function DigestStack({
   const [html, setHtml] = useState(initialHtml);
   const [loading, setLoading] = useState(false);
   const [compact, setCompact] = useState(false);
+  /** The preview is out of sight until a front card is clicked. */
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const front = digests[frontIndex];
 
@@ -107,6 +111,7 @@ export function DigestStack({
         skewY: SKEW,
         transformOrigin: 'center center',
         zIndex: slot.zIndex,
+        autoAlpha: slotOpacity(pos),
         force3D: true,
       });
     });
@@ -144,14 +149,14 @@ export function DigestStack({
       if (!el) return;
       const slot = makeSlot(i, total, sx, sy);
       tl.set(el, { zIndex: slot.zIndex }, 'promote');
-      tl.to(el, { x: slot.x, y: slot.y, z: slot.z, duration: DUR_MOVE, ease: EASE },
+      tl.to(el, { x: slot.x, y: slot.y, z: slot.z, autoAlpha: slotOpacity(i), duration: DUR_MOVE, ease: EASE },
         `promote+=${i * 0.15}`);
     });
 
     const back = makeSlot(total - 1, total, sx, sy);
     tl.addLabel('return', `promote+=${DUR_MOVE * RETURN_DELAY}`);
     tl.call(() => { gsap.set(elFront, { zIndex: back.zIndex }); }, undefined, 'return');
-    tl.to(elFront, { x: back.x, y: back.y, z: back.z, duration: DUR_RETURN, ease: EASE }, 'return');
+    tl.to(elFront, { x: back.x, y: back.y, z: back.z, autoAlpha: slotOpacity(total - 1), duration: DUR_RETURN, ease: EASE }, 'return');
 
     tl.call(() => { order.current = [...rest, frontCard]; });
 
@@ -169,6 +174,7 @@ export function DigestStack({
 
   /** The email preview follows whichever card is in front. */
   useEffect(() => {
+    if (!previewOpen) return;
     if (!front || front.id === selectedId) { setHtml(initialHtml); return; }
     let cancelled = false;
     setLoading(true);
@@ -178,7 +184,15 @@ export function DigestStack({
       .catch(() => { /* keep the previous preview rather than blanking it */ })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [front, selectedId, initialHtml]);
+  }, [front, selectedId, initialHtml, previewOpen]);
+
+  // Esc closes the preview, as a dialog should
+  useEffect(() => {
+    if (!previewOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreviewOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [previewOpen]);
 
   if (!digests.length) return null;
 
@@ -192,7 +206,9 @@ export function DigestStack({
 
   return (
     <div className="stack-wrap">
-      <div className="swap-stage" style={{ height: compact ? 250 : 290 }} role="group" aria-label="Sent digests">
+      {/* Tall enough for the whole fan. The stack grows upward from a low
+          baseline, so without the room the back cards ride over the heading. */}
+      <div className="swap-stage" style={{ height: compact ? 360 : 440 }} role="group" aria-label="Sent digests">
         <div className="swap-3d">
           {digests.map((d, i) => (
             <div
@@ -200,12 +216,15 @@ export function DigestStack({
               ref={(el) => { refs[i].current = el; }}
               className={`swap-card ${d.id === front?.id ? 'is-front' : ''}`}
               style={{ width: compact ? 248 : 356, height: compact ? 170 : 184 }}
-              onClick={() => bringForward(i)}
+              onClick={() => (d.id === front?.id ? setPreviewOpen(true) : bringForward(i))}
               role="button"
               tabIndex={0}
               aria-current={d.id === front?.id}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); bringForward(i); }
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  if (d.id === front?.id) setPreviewOpen(true); else bringForward(i);
+                }
               }}
             >
               <div className="swap-top">
@@ -225,6 +244,9 @@ export function DigestStack({
                   Voice note · {Math.round(d.audio_seconds ?? 0)}s
                 </span>
               )}
+              {d.id === front?.id && (
+                <span className="swap-cta">Open the email →</span>
+              )}
             </div>
           ))}
         </div>
@@ -238,21 +260,43 @@ export function DigestStack({
         )}
       </div>
 
-      <section className="glass-lg panel" style={{ marginTop: 6 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-          <h2 className="h2">Email preview</h2>
-          <span className="note">{loading ? 'Loading…' : 'The exact HTML that was delivered'}</span>
+      {/* The preview stays out of sight until a front card is opened, so the
+          page is the stack and nothing else. */}
+      {previewOpen && front && (
+        <div
+          className="preview-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Email preview: ${front.subject}`}
+          onClick={() => setPreviewOpen(false)}
+        >
+          <div className="preview-sheet" onClick={(e) => e.stopPropagation()}>
+            <header className="preview-head">
+              <div style={{ minWidth: 0 }}>
+                <h2 className="h2" style={{ fontSize: 20 }}>{front.subject}</h2>
+                <p className="note" style={{ margin: '4px 0 0' }}>
+                  {fmt(front.sent_at)} IST · to {front.recipient} ·{' '}
+                  {loading ? 'loading…' : 'the exact HTML that was delivered'}
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                {front.has_audio && (
+                  <a className="chip" href={`/listen/${front.id}`}>Voice note →</a>
+                )}
+                <button className="chip" onClick={() => setPreviewOpen(false)} aria-label="Close preview">
+                  Close ✕
+                </button>
+              </div>
+            </header>
+            <iframe
+              title={front.subject}
+              srcDoc={html}
+              className="preview-frame"
+              style={{ opacity: loading ? 0.5 : 1 }}
+            />
+          </div>
         </div>
-        <iframe
-          title={front?.subject ?? 'Digest preview'}
-          srcDoc={html}
-          style={{
-            width: '100%', height: 720, marginTop: 12,
-            border: '1px solid rgba(255,255,255,.9)', borderRadius: 16,
-            background: '#fff', opacity: loading ? 0.55 : 1, transition: 'opacity .2s ease',
-          }}
-        />
-      </section>
+      )}
     </div>
   );
 }
