@@ -63,12 +63,21 @@ export function urgentAndRelevant(ev: ScoutEvent, today: string): boolean {
  */
 export function rank(events: ScoutEvent[], settings: Settings, today: string = todayISO()): ScoutEvent[] {
   return events
-    .map((ev) => ({ ...ev, rank_value: rankValue(ev, settings) }))
+    .map((ev) => ({
+      ...ev,
+      // Only events that were actually scored get a rank_value. An unscored
+      // event would otherwise be written back as 0, overwriting a good value
+      // from an earlier run — the same way a failed scoring pass used to
+      // erase the score itself.
+      rank_value: typeof ev.score === 'number' ? rankValue(ev, settings) : ev.rank_value,
+    }))
     .sort((a, b) => {
       const ua = urgentAndRelevant(a, today) ? 1 : 0;
       const ub = urgentAndRelevant(b, today) ? 1 : 0;
       if (ua !== ub) return ub - ua;
-      if (b.rank_value! !== a.rank_value!) return b.rank_value! - a.rank_value!;
+      const ra = a.rank_value ?? 0;
+      const rb = b.rank_value ?? 0;
+      if (rb !== ra) return rb - ra;
       const da = toUTCDay(a.start_date) ?? Number.MAX_SAFE_INTEGER;
       const db = toUTCDay(b.start_date) ?? Number.MAX_SAFE_INTEGER;
       if (da !== db) return da - db;

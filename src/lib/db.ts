@@ -167,10 +167,16 @@ export async function upsertEvents(events: ScoutEvent[], runId: number): Promise
          organiser = EXCLUDED.organiser,
          audience_tag = COALESCE(EXCLUDED.audience_tag, events.audience_tag),
          summary = COALESCE(EXCLUDED.summary, events.summary),
-         score = EXCLUDED.score,
-         reason = EXCLUDED.reason,
-         focus_area = EXCLUDED.focus_area,
-         rank_value = EXCLUDED.rank_value,
+         -- A scoring pass that failed returns nothing, and must not erase a
+         -- good score from a previous run. A real new score, 0 included,
+         -- still overwrites; only NULL (meaning "not scored this time")
+         -- leaves the old value alone. Without this a Gemini outage silently
+         -- degrades the digest to an unranked list, which is what happened
+         -- on the first production run.
+         score = COALESCE(EXCLUDED.score, events.score),
+         reason = COALESCE(EXCLUDED.reason, events.reason),
+         focus_area = COALESCE(EXCLUDED.focus_area, events.focus_area),
+         rank_value = COALESCE(EXCLUDED.rank_value, events.rank_value),
          link_ok = EXCLUDED.link_ok,
          link_status = EXCLUDED.link_status,
          last_seen = now()

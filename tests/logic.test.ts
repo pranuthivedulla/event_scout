@@ -475,3 +475,17 @@ test('redaction leaves ordinary error text alone', () => {
   assert.equal(redactSecrets('HTTP 503 from the organiser site'), 'HTTP 503 from the organiser site');
   assert.equal(safeMessage(new Error('page could not be read')), 'page could not be read');
 });
+
+test('a failed scoring pass does not reset an existing rank value', () => {
+  // Regression: the first production run could not reach Gemini, scored
+  // nothing, and wrote rank_value 0 over good values — the digest silently
+  // became an unranked list.
+  const unscored = ev({ title: 'Previously scored', score: undefined, rank_value: 150 });
+  const out = rank([unscored], settings, TODAY);
+  assert.equal(out[0].rank_value, 150, 'the earlier value survives');
+});
+
+test('an event scored zero still gets its rank value written', () => {
+  const scoredZero = ev({ title: 'Genuinely irrelevant', score: 0, rank_value: 150 });
+  assert.equal(rank([scoredZero], settings, TODAY)[0].rank_value, 0);
+});
