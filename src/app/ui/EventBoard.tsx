@@ -102,6 +102,8 @@ export function EventBoard({
           </button>
         )}
 
+        {/* keyed on the filter so the drop-in replays on every switch */}
+        <div className="filter-panel" key={filter} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {sorted.length === 0 ? (
           <div className="empty">
             {filter === 'flagged'
@@ -121,6 +123,8 @@ export function EventBoard({
             />
           ))
         )}
+
+        </div>
 
         {filter === 'all' && alsoFound.length > 0 && (
           <>

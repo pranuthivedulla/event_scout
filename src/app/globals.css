@@ -319,3 +319,26 @@ button { font-family: inherit; }
 /* EventBoard renders the cards and the list together, so inside the two-column
    flex row the cards must claim a full row of their own above it. */
 .cols > .cards { flex: 1 1 100%; }
+
+/* ---------------------------------------------- filtered list drops in */
+/* Clicking a summary card swaps the list below it. Without motion the swap
+   reads as a page jump; a short staggered drop makes it read as the card
+   opening, which is what the click implies. */
+.filter-panel > * {
+  animation: drop-in .34s cubic-bezier(.22, .61, .36, 1) backwards;
+}
+.filter-panel > *:nth-child(1) { animation-delay: 0ms; }
+.filter-panel > *:nth-child(2) { animation-delay: 40ms; }
+.filter-panel > *:nth-child(3) { animation-delay: 80ms; }
+.filter-panel > *:nth-child(4) { animation-delay: 120ms; }
+.filter-panel > *:nth-child(5) { animation-delay: 160ms; }
+.filter-panel > *:nth-child(n+6) { animation-delay: 200ms; }
+
+@keyframes drop-in {
+  from { opacity: 0; transform: translateY(-10px) scaleY(.98); transform-origin: top; }
+  to   { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filter-panel > * { animation: none; }
+}

@@ -86,37 +86,6 @@ export default async function ThisWeek() {
 
           <MiniCalendar events={events} today={today} />
 
-          <section className="glass-lg panel">
-            <h2 className="h2" style={{ fontSize: 20 }}>On your calendar</h2>
-            <p className="note" style={{ marginTop: 4, marginBottom: 12 }}>
-              Stays in every Monday email until it closes. Added to calendar is not a registration —
-              you register on the organiser&rsquo;s page.
-            </p>
-            {calendar.length === 0 ? (
-              <div className="note">Nothing yet. Add to calendar on an event to keep it here.</div>
-            ) : (
-              calendar.map((e) => {
-                const u = urgency(e, today);
-                return (
-                  <div key={e.id} className="row">
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700 }}>{e.title}</div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{e.city}</div>
-                    </div>
-                    <span className="pill" style={{
-                      background: u.flagged ? 'var(--red)' : 'var(--mint)',
-                      color: u.flagged ? '#fff' : 'var(--mint-ink)',
-                    }}>
-                      {e.registration_deadline
-                        ? `Closes ${formatDay(e.registration_deadline, today)}`
-                        : formatDay(e.start_date, today)}
-                    </span>
-                  </div>
-                );
-              })
-            )}
-          </section>
-
           <section className="glass-lg panel" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <h2 className="h2" style={{ fontSize: 20 }}>Activity</h2>
             <Bars title="Events found per week" data={activity.found} />
