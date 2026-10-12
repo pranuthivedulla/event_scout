@@ -1,4 +1,5 @@
 import { Nav } from '../ui/Nav';
+import { DigestStack } from './DigestStack';
 import { listDigests, digestHtml, hasDatabase } from '@/lib/db';
 import { DISPLAY_TZ } from '@/config';
 
@@ -32,7 +33,6 @@ export default async function Digests({
   const digests = await listDigests(40);
   const selectedId = open ? Number(open) : digests[0]?.id;
   const selected = selectedId ? await digestHtml(selectedId) : null;
-  const selectedHasAudio = digests.find((d) => d.id === selectedId)?.has_audio ?? false;
 
   return (
     <main className="page">
@@ -54,69 +54,20 @@ export default async function Digests({
           </div>
         </section>
       ) : (
-        <div className="cols">
-          <section className="glass-lg col-main" style={{ flex: '1 1 340px' }}>
-            <h2 className="h2">Sent digests</h2>
-            {digests.map((d) => {
-              const on = d.id === selectedId;
-              return (
-                <a key={d.id} href={`/digests?open=${d.id}`}
-                   className="ev" style={{
-                     padding: '14px 16px',
-                     background: on ? 'rgba(255,255,255,.92)' : 'rgba(255,255,255,.55)',
-                     borderColor: on ? '#0f7a60' : 'rgba(255,255,255,.9)',
-                   }}>
-                  <div className="ev-body" style={{ gap: 5 }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                      <strong style={{ fontSize: 15 }}>{fmt(d.sent_at)} IST</strong>
-                      <span className="tag" style={{
-                        background: d.kind === 'test_send' ? '#fde9c8' : '#e3ecf7',
-                        color: d.kind === 'test_send' ? '#8a5600' : '#26486e',
-                      }}>
-                        {d.kind === 'test_send' ? 'Test send' : 'Monday auto'}
-                      </span>
-                      <span className="tag tag-format">Sent</span>
-                    </div>
-                    <div className="note">
-                      {d.new_count} new {d.new_count === 1 ? 'event' : 'events'},{' '}
-                      {d.calendar_count} on calendar, {d.closing_count} flagged
-                    </div>
-                    <div className="via">to {d.recipient}</div>
-                    {d.has_audio && (
-                      <span className="tag" style={{ background: 'var(--mint)', color: 'var(--mint-ink)', marginTop: 4, alignSelf: 'flex-start' }}>
-                        Voice note &middot; {Math.round(d.audio_seconds ?? 0)}s
-                      </span>
-                    )}
-                  </div>
-                </a>
-              );
-            })}
-          </section>
-
-          <section className="glass-lg panel" style={{ flex: '999 1 520px', minWidth: 0 }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-              <h2 className="h2">Email preview</h2>
-              {selectedHasAudio && (
-                <a className="chip" href={`/listen/${selectedId}`}>Play the voice note →</a>
-              )}
-            </div>
-            <p className="note" style={{ marginTop: 4, marginBottom: 12 }}>
-              The exact HTML that was delivered, not a re-render.
-            </p>
-            {selected ? (
-              <iframe
-                title={selected.subject}
-                srcDoc={selected.html}
-                style={{
-                  width: '100%', height: 760, border: '1px solid rgba(255,255,255,.9)',
-                  borderRadius: 16, background: '#fff',
-                }}
-              />
-            ) : (
-              <div className="empty">Pick a digest on the left.</div>
-            )}
-          </section>
-        </div>
+        <section className="glass-lg col-main">
+          <h2 className="h2">Sent digests</h2>
+          <p className="note" style={{ marginTop: -4 }}>
+            Click a card behind, or use the arrows, to bring it forward. The
+            preview below follows whichever card is in front.
+          </p>
+          {/* The stack owns the preview: a card swap that left the preview on a
+              different digest would be worse than the plain list it replaced. */}
+          <DigestStack
+            digests={digests}
+            selectedId={selectedId!}
+            initialHtml={selected?.html ?? ''}
+          />
+        </section>
       )}
     </main>
   );
