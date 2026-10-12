@@ -250,3 +250,72 @@ button { font-family: inherit; }
 
 .footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
   gap: 10px; padding-top: 4px; font-size: 13px; color: var(--muted); }
+
+/* ------------------------------------------------- ripple buttons (cards) */
+.ripple-btn {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--edge);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .12s ease, box-shadow .2s ease;
+}
+.ripple-btn:hover { transform: translateY(-1px); }
+.ripple-btn:active { transform: translateY(0); }
+.ripple-btn:focus-visible { outline: 2px solid var(--green-mid); outline-offset: 2px; }
+.ripple-btn.is-active {
+  box-shadow: 0 0 0 2px var(--green), var(--shadow);
+}
+.ripple-content { display: contents; }
+
+.ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: scale(0);
+  opacity: 1;
+  animation-name: ripple-out;
+  animation-timing-function: cubic-bezier(.22,.61,.36,1);
+  animation-fill-mode: forwards;
+  z-index: 0;
+}
+@keyframes ripple-out {
+  to { transform: scale(1); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ripple { display: none; }
+  .ripple-btn:hover { transform: none; }
+}
+
+/* the stat cards are now buttons, so they need the flex layout explicitly */
+.card-button {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  width: 100%;
+  background: var(--glass);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: var(--shadow);
+  border-radius: var(--r);
+}
+
+/* the Admin control in the footer: small, but findable */
+.admin-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 15px; border-radius: 999px;
+  background: rgba(255,255,255,.75);
+  border: 1px solid #b9d3c9;
+  font-size: 13px; font-weight: 700; color: #0f4b3c;
+  cursor: pointer;
+}
+.admin-pill:hover { background: #fff; }
+
+/* EventBoard renders the cards and the list together, so inside the two-column
+   flex row the cards must claim a full row of their own above it. */
+.cols > .cards { flex: 1 1 100%; }

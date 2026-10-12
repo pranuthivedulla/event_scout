@@ -1,5 +1,5 @@
 import { Nav } from './ui/Nav';
-import { EventCard } from './ui/EventCard';
+import { EventBoard } from './ui/EventBoard';
 import { AdminPanel } from './ui/AdminPanel';
 import {
   hasDatabase, upcomingEvents, calendarEvents, clickedEventIds,
@@ -68,60 +68,14 @@ export default async function ThisWeek() {
 
       <SourceStrip sources={sources} />
 
-      <div className="cards">
-        <Stat value={events.length} label="Events ahead" note={`Across ${settings.cities.join(', ')}`} />
-        <Stat value={closingSoon.length} label="Closing or starting in 7 days" note="Flagged in red" red />
-        <Stat value={calendar.length} label="On your calendar" note="Kept until they close" />
-      </div>
-
       <div className="cols">
-        <section className="glass-lg col-main">
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-            <h2 className="h2">Ranked for you</h2>
-            <span className="note">
-              {closingSoon.filter((e) => (e.score ?? 0) > 0).length > 0
-                ? 'Closing or starting within 7 days first, then by fit'
-                : `${ranked.length} matched your focus areas, ordered by fit`}
-            </span>
-          </div>
-
-          {ranked.length === 0 ? (
-            <div className="empty">
-              Nothing matched your focus areas yet.
-              {alsoFound.length > 0 && <> {alsoFound.length} other events were found and are listed below.</>}
-            </div>
-          ) : (
-            ranked.map((e, i) => (
-              <EventCard key={e.id} ev={e} rank={i + 1} today={today}
-                         onCalendar={e.id ? clicked.has(e.id) : false} />
-            ))
-          )}
-
-          {alsoFound.length > 0 && (
-            <>
-              <div style={{ marginTop: 10 }}>
-                <div className="eyebrow">Also found this week</div>
-                <p className="note" style={{ marginTop: 4 }}>
-                  No focus-area match. Shown so nothing is hidden from you.
-                </p>
-              </div>
-              {alsoFound.map((e) => (
-                <div key={e.id} className="row">
-                  <div style={{ minWidth: 0 }}>
-                    <a href={e.source_url} target="_blank" rel="noopener noreferrer"
-                       style={{ fontSize: 14, fontWeight: 700 }}>{e.title}</a>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                      {[e.city, formatDay(e.start_date, today)].filter(Boolean).join(' · ')}
-                    </div>
-                  </div>
-                  <span className="pill" style={{ background: 'var(--mint)', color: 'var(--mint-ink)' }}>
-                    {e.score ?? 0}/5
-                  </span>
-                </div>
-              ))}
-            </>
-          )}
-        </section>
+        <EventBoard
+          events={events}
+          calendar={calendar}
+          clickedIds={[...clicked]}
+          cities={settings.cities}
+          today={today}
+        />
 
         <aside className="col-side">
           <MiniCalendar events={events} today={today} />
