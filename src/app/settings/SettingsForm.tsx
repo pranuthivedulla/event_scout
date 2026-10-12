@@ -220,7 +220,13 @@ export function SettingsForm({ initial, updatedAt }: { initial: Settings; update
         )}
         {updatedAt && (
           <div className="note">
-            Last changed {new Date(updatedAt).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' })} IST.
+            Last changed{' '}
+            {new Intl.DateTimeFormat('en-GB', {
+              timeZone: 'Asia/Kolkata',
+              weekday: 'short', day: 'numeric', month: 'short',
+              hour: '2-digit', minute: '2-digit', hour12: false,
+            }).format(new Date(updatedAt))}{' '}
+            IST.
           </div>
         )}
       </section>
