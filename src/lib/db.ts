@@ -302,7 +302,8 @@ export async function insertDigest(d: {
 
 export async function listDigests(limit = 40) {
   const rows = await q(
-    `SELECT id, sent_at, kind, recipient, subject, new_count, calendar_count, closing_count
+    `SELECT id, sent_at, kind, recipient, subject, new_count, calendar_count,
+            closing_count, audio_seconds, (audio IS NOT NULL) AS has_audio
        FROM digests ORDER BY sent_at DESC LIMIT $1`,
     [limit]
   );
@@ -315,6 +316,8 @@ export async function listDigests(limit = 40) {
     new_count: Number(r.new_count),
     calendar_count: Number(r.calendar_count),
     closing_count: Number(r.closing_count),
+    has_audio: Boolean(r.has_audio),
+    audio_seconds: r.audio_seconds === null || r.audio_seconds === undefined ? null : Number(r.audio_seconds),
   }));
 }
 
@@ -520,4 +523,23 @@ export async function findAudioByScript(
   if (!r?.audio) return null;
   // same shape as tts.synthesise(), so callers can use either interchangeably
   return { wav: byteaToBuffer(r.audio), seconds: Number(r.audio_seconds ?? 0) };
+}
+
+/** The most recent digest that actually has a voice note, if any. */
+export async function latestAudioDigest(): Promise<
+  { id: number; seconds: number; script: string; sent_at: string } | null
+> {
+  const rows = await q(
+    `SELECT id, audio_seconds, audio_script, sent_at
+       FROM digests WHERE audio IS NOT NULL
+      ORDER BY sent_at DESC LIMIT 1`
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    id: Number(r.id),
+    seconds: Number(r.audio_seconds ?? 0),
+    script: String(r.audio_script ?? ''),
+    sent_at: new Date(String(r.sent_at)).toISOString(),
+  };
 }

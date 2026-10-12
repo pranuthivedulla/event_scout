@@ -32,6 +32,7 @@ export default async function Digests({
   const digests = await listDigests(40);
   const selectedId = open ? Number(open) : digests[0]?.id;
   const selected = selectedId ? await digestHtml(selectedId) : null;
+  const selectedHasAudio = digests.find((d) => d.id === selectedId)?.has_audio ?? false;
 
   return (
     <main className="page">
@@ -81,6 +82,11 @@ export default async function Digests({
                       {d.calendar_count} on calendar, {d.closing_count} flagged
                     </div>
                     <div className="via">to {d.recipient}</div>
+                    {d.has_audio && (
+                      <span className="tag" style={{ background: 'var(--mint)', color: 'var(--mint-ink)', marginTop: 4, alignSelf: 'flex-start' }}>
+                        Voice note &middot; {Math.round(d.audio_seconds ?? 0)}s
+                      </span>
+                    )}
                   </div>
                 </a>
               );
@@ -88,7 +94,12 @@ export default async function Digests({
           </section>
 
           <section className="glass-lg panel" style={{ flex: '999 1 520px', minWidth: 0 }}>
-            <h2 className="h2">Email preview</h2>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+              <h2 className="h2">Email preview</h2>
+              {selectedHasAudio && (
+                <a className="chip" href={`/listen/${selectedId}`}>Play the voice note →</a>
+              )}
+            </div>
             <p className="note" style={{ marginTop: 4, marginBottom: 12 }}>
               The exact HTML that was delivered, not a re-render.
             </p>

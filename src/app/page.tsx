@@ -1,9 +1,11 @@
 import { Nav } from './ui/Nav';
 import { EventBoard } from './ui/EventBoard';
 import { AdminPanel } from './ui/AdminPanel';
+import { VoiceNote } from './ui/VoiceNote';
 import {
   hasDatabase, upcomingEvents, calendarEvents, clickedEventIds,
   latestSourceRuns, latestRun, weeklyActivity, splits, getSettings,
+  latestAudioDigest,
 } from '@/lib/db';
 import { todayISO, urgency, formatDay, daysBetween, isISODate } from '@/lib/dates';
 import { sortForDisplay } from '@/lib/rank';
@@ -31,10 +33,12 @@ export default async function ThisWeek() {
     );
   }
 
-  const [stored, calendar, clicked, sources, run, activity, split, settings] = await Promise.all([
-    upcomingEvents(60), calendarEvents(), clickedEventIds(),
-    latestSourceRuns(), latestRun(), weeklyActivity(4), splits(), getSettings(),
-  ]);
+  const [stored, calendar, clicked, sources, run, activity, split, settings, voiceNote] =
+    await Promise.all([
+      upcomingEvents(60), calendarEvents(), clickedEventIds(),
+      latestSourceRuns(), latestRun(), weeklyActivity(4), splits(), getSettings(),
+      latestAudioDigest(),
+    ]);
 
   // Urgency changes daily, so the order is worked out now, not read from the
   // database. Anything flagged AND relevant comes first.
@@ -78,6 +82,8 @@ export default async function ThisWeek() {
         />
 
         <aside className="col-side">
+          <VoiceNote note={voiceNote} />
+
           <MiniCalendar events={events} today={today} />
 
           <section className="glass-lg panel">
