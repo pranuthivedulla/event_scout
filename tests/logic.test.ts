@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 
 import { isISODate, daysBetween, addDays, urgency, calendarDate, googleCalendarUrl, formatRange, pgDateToISO } from '../src/lib/dates';
 import { hardFilter, matchCity, dropSummary } from '../src/lib/filters';
-import { rank, applyCap, rankValue, mergeDuplicates, fingerprint, sortForDisplay } from '../src/lib/rank';
+import { rank, applyCap, rankValue, mergeDuplicates, fingerprint, sortForDisplay, normaliseTitle } from '../src/lib/rank';
 import { buildDeadlineScript } from '../src/lib/tts';
 import { redactSecrets, safeMessage } from '../src/lib/redact';
 import { parseScheduleText } from '../src/lib/sources/apify';
@@ -513,4 +513,96 @@ test('unparseable schedule text returns null rather than a guess', () => {
   assert.equal(parseScheduleText(null), null);
   assert.equal(parseScheduleText(undefined), null);
   assert.equal(parseScheduleText('Feb 30, 2026'), null, 'an impossible date is not a date');
+});
+
+// -------------------------------------------- cross-platform deduplication
+
+test('the same conference on two platforms merges, however it is titled', () => {
+  // The first pass only catches identical normalised title AND date, which is
+  // what ONE platform gives you. Across platforms the venue gets appended, the
+  // city gets bracketed, and the date slips by a day.
+  const cases: [string, ScoutEvent, ScoutEvent][] = [
+    ['venue after a pipe',
+      ev({ title: 'ETBFSI Converge 2026', source: 'linkedin', start_date: '2026-12-10' }),
+      ev({ title: 'ETBFSI Converge 2026 | Jio World Centre', source: 'eventbrite', start_date: '2026-12-10' })],
+    ['bracketed city suffix',
+      ev({ title: 'BFSI Tech Leaders Forum', source: 'linkedin', start_date: '2026-11-20' }),
+      ev({ title: 'BFSI Tech Leaders Forum (Mumbai)', source: 'eventbrite', start_date: '2026-11-20' })],
+    ['a dash subtitle',
+      ev({ title: 'NBFC Connect - Day 1', source: 'linkedin', start_date: '2026-11-08' }),
+      ev({ title: 'NBFC Connect', source: 'eventbrite', start_date: '2026-11-08' })],
+    ['one platform states no date',
+      ev({ title: 'Core Banking Roundtable', source: 'linkedin', start_date: null }),
+      ev({ title: 'Core Banking Roundtable', source: 'eventbrite', start_date: '2026-11-12' })],
+    ['dates a day apart',
+      ev({ title: 'Digital Payments Leaders Forum', source: 'linkedin', start_date: '2026-11-05' }),
+      ev({ title: 'Digital Payments Leaders Forum', source: 'eventbrite', start_date: '2026-11-06' })],
+  ];
+  for (const [label, a, b] of cases) {
+    assert.equal(mergeDuplicates([a, b]).length, 1, `should merge: ${label}`);
+  }
+});
+
+test('a merged event credits every platform that listed it', () => {
+  const a = ev({ title: 'Core Banking Modernisation Forum', source: 'linkedin', start_date: '2026-11-12' });
+  const b = ev({ title: 'Core Banking Modernisation Forum | Taj', source: 'eventbrite', start_date: '2026-11-12' });
+  const c = ev({ title: 'Core Banking Modernisation Forum', source: 'etbfsi', start_date: '2026-11-13' });
+  const out = mergeDuplicates([a, b, c]);
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0].source.split(', ').sort(), ['etbfsi', 'eventbrite', 'linkedin']);
+});
+
+test('a deadline stated by only one platform survives the cross-platform merge', () => {
+  const thin = ev({ title: 'Payments Innovation Forum', source: 'linkedin', start_date: '2026-11-05',
+                    registration_deadline: '2026-10-30' });
+  const rich = ev({ title: 'Payments Innovation Forum | BKC', source: 'eventbrite', start_date: '2026-11-05',
+                    venue: 'BKC', summary: 'Two lines.', organiser: 'X', audience_tag: 'CIO' });
+  const out = mergeDuplicates([rich, thin]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].venue, 'BKC', 'the richer record keeps its shape');
+  assert.equal(out[0].registration_deadline, '2026-10-30', 'and the only stated deadline survives');
+});
+
+test('when two platforms disagree on the date, the earlier one wins', () => {
+  const a = ev({ title: 'Regtech Compliance Conclave', source: 'linkedin', start_date: '2026-11-06' });
+  const b = ev({ title: 'Regtech Compliance Conclave', source: 'eventbrite', start_date: '2026-11-05' });
+  assert.equal(mergeDuplicates([a, b])[0].start_date, '2026-11-05');
+});
+
+test('a recurring series on one platform is NOT collapsed into one event', () => {
+  // Same title, same source, different months: a monthly meetup, not a
+  // duplicate. Collapsing these would hide real events from Vikram.
+  const nov = ev({ title: 'BFSI Founders Meetup', source: 'luma', start_date: '2026-11-05' });
+  const dec = ev({ title: 'BFSI Founders Meetup', source: 'luma', start_date: '2026-12-05' });
+  assert.equal(mergeDuplicates([nov, dec]).length, 2);
+});
+
+test('the same series on two platforms keeps its separate dates', () => {
+  const a = ev({ title: 'BFSI Founders Meetup', source: 'luma', start_date: '2026-11-05' });
+  const b = ev({ title: 'BFSI Founders Meetup', source: 'linkedin', start_date: '2026-12-05' });
+  assert.equal(mergeDuplicates([a, b]).length, 2, 'a month apart is a different occurrence');
+});
+
+test('different events in different cities never merge on a shared title', () => {
+  const mum = ev({ title: 'Digital Payments Roadshow', source: 'linkedin', city: 'Mumbai', start_date: '2026-11-05' });
+  const blr = ev({ title: 'Digital Payments Roadshow', source: 'eventbrite', city: 'Bengaluru', start_date: '2026-11-05' });
+  assert.equal(mergeDuplicates([mum, blr]).length, 2);
+});
+
+test('a title too generic to be an identity is not matched on', () => {
+  // "Fintech Summit" normalises to "fintech" once the noise words go. Two
+  // unrelated ones must not collapse just because the stub matches.
+  const a = ev({ title: 'Fintech Summit', source: 'linkedin', city: null, start_date: '2026-11-05' });
+  const b = ev({ title: 'Fintech Conference', source: 'eventbrite', city: null, start_date: '2026-11-05' });
+  assert.equal(mergeDuplicates([a, b]).length, 2);
+});
+
+test('normaliseTitle strips platform decoration but leaves the title alone', () => {
+  assert.equal(normaliseTitle('ETBFSI Converge 2026 | Jio World Centre'), 'etbfsi converge');
+  assert.equal(normaliseTitle('BFSI Tech Leaders Forum (Mumbai)'), 'bfsi tech leaders forum');
+  assert.equal(normaliseTitle('NBFC Connect - Day 1'), 'nbfc connect');
+  const original = 'ETBFSI Converge 2026 | Jio World Centre';
+  const e = ev({ title: original });
+  mergeDuplicates([e]);
+  assert.equal(e.title, original, 'the displayed title is never rewritten');
 });

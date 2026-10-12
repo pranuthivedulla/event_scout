@@ -10,6 +10,7 @@
 import { LEVEL_WEIGHT, MAX_NEW_EVENTS, type FocusLevel } from '@/config';
 import type { ScoutEvent, Settings } from './types';
 import { toUTCDay, urgency, todayISO } from './dates';
+import { normaliseCity } from './filters';
 
 /** Which configured focus area did Gemini say this matched, and at what level? */
 export function levelFor(ev: ScoutEvent, settings: Settings): FocusLevel | null {
@@ -96,16 +97,44 @@ export function applyCap(events: ScoutEvent[], max: number = MAX_NEW_EVENTS): Sc
 
 const NOISE = /\b(20\d\d|the|a|an|and|&|india|summit|conference|edition|\d+(st|nd|rd|th))\b/g;
 
-/** Stable identity for an event, used for dedup and for "have we seen this?". */
-export function fingerprint(ev: ScoutEvent): string {
-  const title = ev.title
+/**
+ * A title reduced to the part two platforms are likely to agree on.
+ *
+ * The same conference is rarely titled identically on two sites: one appends
+ * the venue after a pipe, another brackets the city, a third adds "- Day 1".
+ * Anything after a pipe or dash separator is dropped, as is a trailing
+ * bracketed group, before the usual noise words go.
+ *
+ * Used ONLY for matching. The title shown to Vikram is never altered.
+ */
+export function normaliseTitle(title: string): string {
+  return title
+    .split(/\s[|–—-]\s/)[0]
+    .replace(/\s*[([][^)\]]*[)\]]\s*$/g, ' ')
     .toLowerCase()
     .normalize('NFKD')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(NOISE, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  return `${title}|${ev.start_date ?? 'nodate'}`;
+}
+
+/** Stable identity for an event, used for dedup and for "have we seen this?". */
+export function fingerprint(ev: ScoutEvent): string {
+  return `${normaliseTitle(ev.title)}|${ev.start_date ?? 'nodate'}`;
+}
+
+/** Every source that contributed to a record, including after a merge. */
+function sourcesOf(ev: ScoutEvent): string[] {
+  return String(ev.source).split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+/** Whole days between two ISO dates, or null if either is missing. */
+function dayGap(a: string | null | undefined, b: string | null | undefined): number | null {
+  const x = toUTCDay(a ?? null);
+  const y = toUTCDay(b ?? null);
+  if (x === null || y === null) return null;
+  return Math.abs(Math.round((x - y) / 86_400_000));
 }
 
 /** How much do we actually know about this event? More is better when merging. */
@@ -118,36 +147,86 @@ function completeness(ev: ScoutEvent): number {
 }
 
 /**
- * Merge duplicates into one event. The richest record wins the shape; any
- * field it is missing is filled from a sibling that has it, so a stated
- * registration deadline is never lost just because another source omitted it.
+ * Is this one real event listed twice?
+ *
+ * One predicate for both cases, because splitting it into an exact-match pass
+ * and a cross-platform pass let contradictions through: the exact pass keyed
+ * on title and date alone, so two different-city conferences sharing a title
+ * and a date merged before any of the guards below could object.
+ */
+export function isDuplicate(a: ScoutEvent, b: ScoutEvent): boolean {
+  const ta = normaliseTitle(a.title);
+  if (!ta || ta !== normaliseTitle(b.title)) return false;
+
+  // Two events in different cities are different events, whatever the title
+  // says. Only applied when both sides actually state one.
+  if (a.city && b.city && normaliseCity(a.city) !== normaliseCity(b.city)) return false;
+
+  const sharesSource = sourcesOf(b).some((s) => new Set(sourcesOf(a)).has(s));
+  const gap = dayGap(a.start_date, b.start_date);
+
+  if (sharesSource) {
+    // The same platform listing one title on two days is a recurring series,
+    // not a duplicate. Only an exact date match counts.
+    return gap === 0;
+  }
+
+  // A title that reduces to one short word is too generic to be an identity:
+  // "Fintech Summit" normalises to "fintech", and two unrelated fintech
+  // summits must not collapse into one.
+  if (ta.split(' ').length < 2 && ta.length < 10) return false;
+
+  // Across platforms the dates routinely disagree by a day, because sites
+  // differ on timezones and on which day a multi-day conference starts, and
+  // one side may carry no date at all.
+  if (gap === null) return true;
+  return gap <= 1;
+}
+
+/** Kept for the cross-platform case specifically; see isDuplicate. */
+export function sameEventAcrossSources(a: ScoutEvent, b: ScoutEvent): boolean {
+  const sharesSource = sourcesOf(b).some((s) => new Set(sourcesOf(a)).has(s));
+  return !sharesSource && isDuplicate(a, b);
+}
+
+/**
+ * Merge duplicates into one event, including the same conference listed on
+ * two platforms under different titles or a day apart.
+ *
+ * The richest record wins the shape; any field it is missing is filled from a
+ * sibling that has it, so a registration deadline or a summary held by only
+ * one platform is never lost.
  */
 export function mergeDuplicates(events: ScoutEvent[]): ScoutEvent[] {
-  const groups = new Map<string, ScoutEvent[]>();
-  for (const ev of events) {
-    const fp = fingerprint(ev);
-    const g = groups.get(fp);
-    if (g) g.push(ev);
-    else groups.set(fp, [ev]);
-  }
-
   const out: ScoutEvent[] = [];
-  for (const [fp, group] of groups) {
-    const sorted = [...group].sort((a, b) => completeness(b) - completeness(a));
-    const base: ScoutEvent = { ...sorted[0], fingerprint: fp };
 
-    for (const other of sorted.slice(1)) {
-      for (const k of Object.keys(other) as (keyof ScoutEvent)[]) {
-        if (base[k] === null || base[k] === undefined || base[k] === '') {
-          (base as unknown as Record<string, unknown>)[k] = other[k];
-        }
+  for (const ev of events) {
+    const match = out.find((kept) => isDuplicate(kept, ev));
+    if (!match) {
+      out.push({ ...ev, source: sourcesOf(ev).join(', '), fingerprint: fingerprint(ev) });
+      continue;
+    }
+
+    const [rich, thin] = completeness(match) >= completeness(ev) ? [match, ev] : [ev, match];
+    const merged: ScoutEvent = { ...rich };
+    for (const k of Object.keys(thin) as (keyof ScoutEvent)[]) {
+      if (merged[k] === null || merged[k] === undefined || merged[k] === '') {
+        (merged as unknown as Record<string, unknown>)[k] = thin[k];
       }
     }
-    // record every source that saw it, so the digest can say "via X and Y"
-    const sources = [...new Set(group.map((e) => e.source))];
-    base.source = sources.join(', ');
-    out.push(base);
+
+    // prefer a real date over none, and the earlier of two that disagree
+    const x = toUTCDay(match.start_date), y = toUTCDay(ev.start_date);
+    if (x !== null && y !== null) merged.start_date = x <= y ? match.start_date : ev.start_date;
+    else merged.start_date = match.start_date ?? ev.start_date;
+
+    // credit every platform that listed it, so the digest can say "via X and Y"
+    merged.source = [...new Set([...sourcesOf(match), ...sourcesOf(ev)])].join(', ');
+    merged.fingerprint = fingerprint(merged);
+
+    out[out.indexOf(match)] = merged;
   }
+
   return out;
 }
 
