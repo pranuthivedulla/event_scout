@@ -312,6 +312,14 @@ export async function listDigests(limit = 40) {
   }));
 }
 
+/** The HTTP driver returns bytea as the Postgres hex string "\x89504e...". */
+function byteaToBuffer(raw: unknown): Buffer {
+  if (Buffer.isBuffer(raw)) return raw;
+  const s = String(raw);
+  // String.raw avoids an escaped-backslash literal, which is easy to mangle
+  return Buffer.from(s.startsWith(String.raw`\x`) ? s.slice(2) : s, 'hex');
+}
+
 export async function saveDigestAudio(
   id: number,
   audio: Buffer,
@@ -483,4 +491,27 @@ export async function updateDigestHtml(id: number, html: string): Promise<void> 
 /** Used only to clean up a digest row whose send then failed. */
 export async function deleteDigest(id: number): Promise<void> {
   await q('DELETE FROM digests WHERE id = $1', [id]);
+}
+
+/**
+ * Audio we have already synthesised for this exact script.
+ *
+ * The admin button re-sends the same digest, so ten grader presses would be
+ * ten TTS calls saying one identical sentence. TTS is the most tightly
+ * rate-limited model we use, so the clip is reused whenever the words have
+ * not changed — the same principle as caching extractions by source URL.
+ */
+export async function findAudioByScript(
+  script: string
+): Promise<{ wav: Buffer; seconds: number } | null> {
+  const rows = await q(
+    `SELECT audio, audio_seconds FROM digests
+      WHERE audio_script = $1 AND audio IS NOT NULL
+      ORDER BY sent_at DESC LIMIT 1`,
+    [script]
+  );
+  const r = rows[0];
+  if (!r?.audio) return null;
+  // same shape as tts.synthesise(), so callers can use either interchangeably
+  return { wav: byteaToBuffer(r.audio), seconds: Number(r.audio_seconds ?? 0) };
 }

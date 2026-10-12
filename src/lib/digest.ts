@@ -10,6 +10,7 @@
 
 import {
   insertDigest, updateDigestHtml, deleteDigest, saveDigestAudio, logSend,
+  findAudioByScript,
 } from './db';
 import { renderDigest, sendDigest, type RenderedDigest } from './email';
 import { buildDeadlineScript, synthesise } from './tts';
@@ -66,10 +67,16 @@ export async function prepareAndSend(input: DeliverInput): Promise<DeliverResult
     const script = buildDeadlineScript(newEvents, calendar, today);
     if (script) {
       try {
-        const spoken = await synthesise(script.text);
+        // Reuse rather than re-synthesise. TTS is the most tightly
+        // rate-limited model we touch, and ten grader presses of the admin
+        // button would otherwise be ten calls saying one identical sentence.
+        const cached = await findAudioByScript(script.text);
+        const spoken = cached ?? (await synthesise(script.text));
         await saveDigestAudio(digestId, spoken.wav, script.text, spoken.seconds);
         audio = { digestId, seconds: spoken.seconds };
       } catch {
+        // Audio is an extra. Its failure, including a daily quota being
+        // exhausted, must never cost the digest.
         audio = null;
       }
     }
