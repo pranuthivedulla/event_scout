@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isISODate, daysBetween, addDays, urgency, calendarDate, googleCalendarUrl, formatRange } from '../src/lib/dates';
+import { isISODate, daysBetween, addDays, urgency, calendarDate, googleCalendarUrl, formatRange, pgDateToISO } from '../src/lib/dates';
 import { hardFilter, matchCity, dropSummary } from '../src/lib/filters';
 import { rank, applyCap, rankValue, mergeDuplicates, fingerprint } from '../src/lib/rank';
 import type { ScoutEvent, Settings } from '../src/lib/types';
@@ -300,4 +300,28 @@ test('fingerprints ignore year, ordinal and filler noise in titles', () => {
     fingerprint(ev({ title: '29th BFSI IT Summit 2026', start_date: '2026-11-05' })),
     fingerprint(ev({ title: 'The BFSI IT Summit', start_date: '2026-11-05' }))
   );
+});
+
+// ------------------------------------------------------- postgres DATE reads
+
+test('a Postgres DATE read back in IST does not shift a day earlier', () => {
+  // Regression. The driver builds DATE into a JS Date at LOCAL midnight. In
+  // IST that is 18:30 UTC the day before, so .toISOString().slice(0,10)
+  // returned the previous day and every date in the system was one day early.
+  // Caught by diffing two runs: ETBFSI Converge moved 10 Dec -> 9 Dec.
+  const istMidnight = new Date(2026, 11, 10, 0, 0, 0); // local 10 Dec 2026
+  assert.equal(pgDateToISO(istMidnight), '2026-12-10');
+
+  const oct = new Date(2026, 9, 24, 0, 0, 0);
+  assert.equal(pgDateToISO(oct), '2026-10-24');
+});
+
+test('pgDateToISO passes strings through and rejects junk', () => {
+  assert.equal(pgDateToISO('2026-10-24'), '2026-10-24');
+  assert.equal(pgDateToISO('2026-10-24T00:00:00Z'), '2026-10-24');
+  assert.equal(pgDateToISO(null), null);
+  assert.equal(pgDateToISO(undefined), null);
+  assert.equal(pgDateToISO(''), null);
+  assert.equal(pgDateToISO(new Date('nonsense')), null);
+  assert.equal(pgDateToISO('not a date'), null);
 });

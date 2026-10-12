@@ -111,7 +111,7 @@ export function mergeDuplicates(events: ScoutEvent[]): ScoutEvent[] {
     for (const other of sorted.slice(1)) {
       for (const k of Object.keys(other) as (keyof ScoutEvent)[]) {
         if (base[k] === null || base[k] === undefined || base[k] === '') {
-          (base as Record<string, unknown>)[k] = other[k];
+          (base as unknown as Record<string, unknown>)[k] = other[k];
         }
       }
     }

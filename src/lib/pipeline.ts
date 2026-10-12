@@ -27,6 +27,8 @@ export interface PipelineStats {
   final: number;
   tokens: number;
   drops: Record<string, number>;
+  /** True when the enrich stage ran out of time; summaries are missing, not events. */
+  enrichIncomplete?: boolean;
 }
 
 export interface PipelineResult {
@@ -64,42 +66,49 @@ export async function stageFetch(
   const sourceRuns: SourceRun[] = [];
   let tokens = 0;
 
-  for (const src of sources) {
+  // Sources are independent, and the slow ones are slow for different reasons
+  // (a Gemini page read is ~45s, a Luma fetch is ~2s). Running them together
+  // is what keeps the Monday run inside Vercel's 300s ceiling.
+  const settled = await Promise.all(sources.map(async (src) => {
     const ran_at = new Date().toISOString();
     try {
       if (src.kind === 'apify') {
         // LinkedIn. Deferred until APIFY_TOKEN exists. Reported, never fatal.
         if (!process.env.APIFY_TOKEN) {
-          sourceRuns.push({ source: src.label, ok: false, error: 'not configured', found: 0, ran_at });
           log(`  ${src.label}: not configured`);
-          continue;
+          return { run: { source: src.label, ok: false, error: 'not configured', found: 0, ran_at }, found: [], tokens: 0 };
         }
-        sourceRuns.push({ source: src.label, ok: false, error: 'not implemented yet', found: 0, ran_at });
-        continue;
+        return { run: { source: src.label, ok: false, error: 'not implemented yet', found: 0, ran_at }, found: [], tokens: 0 };
       }
 
       let found: ScoutEvent[] = [];
+      let used = 0;
       if (src.kind === 'structured') {
         found = await fetchLuma(src.key, src.url);
       } else if (src.kind === 'page') {
         const r = await fetchPageSource(src.key, src.url, today);
-        tokens += r.tokens;
+        used = r.tokens;
         if (!r.readable) throw new Error('page could not be read');
         found = r.events;
       } else {
-        sourceRuns.push({ source: src.label, ok: false, error: 'source kind not implemented', found: 0, ran_at });
-        continue;
+        return { run: { source: src.label, ok: false, error: 'source kind not implemented', found: 0, ran_at }, found: [], tokens: used };
       }
 
-      events.push(...found);
-      sourceRuns.push({ source: src.label, ok: true, error: null, found: found.length, ran_at });
       log(`  ${src.label}: ${found.length} events`);
+      return { run: { source: src.label, ok: true, error: null, found: found.length, ran_at }, found, tokens: used };
     } catch (e) {
       // A failing source must never break the run. It is reported instead.
       const msg = e instanceof Error ? e.message : String(e);
-      sourceRuns.push({ source: src.label, ok: false, error: msg, found: 0, ran_at });
       log(`  ${src.label}: FAILED (${msg})`);
+      return { run: { source: src.label, ok: false, error: msg, found: 0, ran_at }, found: [], tokens: 0 };
     }
+  }));
+
+  // keep source order stable regardless of which finished first
+  for (const r of settled) {
+    sourceRuns.push(r.run);
+    events.push(...r.found);
+    tokens += r.tokens;
   }
 
   return { events, sourceRuns, tokens };
@@ -108,7 +117,7 @@ export async function stageFetch(
 // ---------------------------------------------------------- stage: linkcheck
 
 export async function stageLinkCheck(events: ScoutEvent[], log: Log = () => {}): Promise<ScoutEvent[]> {
-  const results = await checkLinks(events.map((e) => e.source_url));
+  const results = await checkLinks(events.map((e) => e.source_url), 8);
   let dead = 0;
   const out = events.map((e) => {
     const r = results.get(e.source_url);
@@ -131,13 +140,40 @@ export async function stageEnrich(
   events: ScoutEvent[],
   today: string,
   batchSize = 4,
-  log: Log = () => {}
-): Promise<{ events: ScoutEvent[]; tokens: number }> {
+  log: Log = () => {},
+  /** Pages already read in an earlier run, keyed by source_url. */
+  cached?: Map<string, { summary: string | null; audience_tag: string | null; registration_deadline: string | null }>,
+  /** Absolute epoch-ms deadline; no new batch starts after it. */
+  deadline?: number
+): Promise<{ events: ScoutEvent[]; tokens: number; incomplete: boolean }> {
   let tokens = 0;
   const byUrl = new Map(events.map((e) => [e.source_url, { ...e }]));
 
-  for (let i = 0; i < events.length; i += batchSize) {
-    const batch = events.slice(i, i + batchSize);
+  // Anything we have already read is applied for free and never re-fetched.
+  const todo: ScoutEvent[] = [];
+  for (const e of events) {
+    const hit = cached?.get(e.source_url);
+    if (hit?.summary) {
+      const t = byUrl.get(e.source_url)!;
+      t.summary = t.summary ?? hit.summary;
+      t.audience_tag = t.audience_tag ?? hit.audience_tag;
+      if (!t.registration_deadline && hit.registration_deadline) t.registration_deadline = hit.registration_deadline;
+    } else {
+      todo.push(e);
+    }
+  }
+  if (cached && todo.length !== events.length) {
+    log(`  ${events.length - todo.length} already read, ${todo.length} to fetch`);
+  }
+
+  let incomplete = false;
+  for (let i = 0; i < todo.length; i += batchSize) {
+    if (deadline !== undefined && Date.now() > deadline) {
+      log(`  time budget reached, ${todo.length - i} events left unenriched`);
+      incomplete = true;
+      break;
+    }
+    const batch = todo.slice(i, i + batchSize);
     try {
       const { enrichments, tokens: t } = await enrichEvents(batch, today);
       tokens += t;
@@ -151,14 +187,14 @@ export async function stageEnrich(
         target.format = target.format ?? en.format;
         target.city = target.city ?? en.city;
       }
-      log(`  enriched ${Math.min(i + batchSize, events.length)}/${events.length}`);
+      log(`  enriched ${Math.min(i + batchSize, todo.length)}/${todo.length}`);
     } catch (e) {
       // Enrichment is additive. Losing a batch costs summaries, not events.
       log(`  enrich batch ${i / batchSize + 1} failed: ${e instanceof Error ? e.message : e}`);
     }
   }
 
-  return { events: [...byUrl.values()], tokens };
+  return { events: [...byUrl.values()], tokens, incomplete };
 }
 
 // -------------------------------------------------------------- stage: score
@@ -172,24 +208,35 @@ export async function stageScore(
   let tokens = 0;
   const out = events.map((e) => ({ ...e }));
 
-  for (let i = 0; i < out.length; i += batchSize) {
-    const batch = out.slice(i, i + batchSize);
-    try {
-      const { scorings, tokens: t } = await scoreEvents(batch, settings);
-      tokens += t;
-      for (const s of scorings) {
-        const target = batch[s.index - 1];
-        if (!target) continue;
-        target.score = s.score;
-        target.reason = s.reason;
-        target.focus_area = s.focus_area;
+  // Scoring needs no url_context, so these calls are short and independent:
+  // run them together rather than one after another.
+  const batches: ScoutEvent[][] = [];
+  for (let i = 0; i < out.length; i += batchSize) batches.push(out.slice(i, i + batchSize));
+
+  const results = await Promise.all(
+    batches.map(async (batch, n) => {
+      try {
+        const r = await scoreEvents(batch, settings);
+        log(`  scored batch ${n + 1}/${batches.length}`);
+        return r;
+      } catch (e) {
+        // Unscored events rank at the bottom rather than disappearing.
+        log(`  score batch ${n + 1} failed: ${e instanceof Error ? e.message : e}`);
+        return { scorings: [], tokens: 0 };
       }
-      log(`  scored ${Math.min(i + batchSize, out.length)}/${out.length}`);
-    } catch (e) {
-      // Unscored events rank at the bottom rather than disappearing.
-      log(`  score batch ${i / batchSize + 1} failed: ${e instanceof Error ? e.message : e}`);
+    })
+  );
+
+  results.forEach((r, n) => {
+    tokens += r.tokens;
+    for (const s of r.scorings) {
+      const target = batches[n][s.index - 1];
+      if (!target) continue;
+      target.score = s.score;
+      target.reason = s.reason;
+      target.focus_area = s.focus_area;
     }
-  }
+  });
 
   return { events: out, tokens };
 }
@@ -198,7 +245,18 @@ export async function stageScore(
 
 export async function runPipeline(
   settings: Settings,
-  opts: { today?: string; log?: Log } = {}
+  opts: {
+    today?: string;
+    log?: Log;
+    /** Pages read in an earlier run; skipped rather than re-fetched. */
+    cached?: Map<string, { summary: string | null; audience_tag: string | null; registration_deadline: string | null }>;
+    /**
+     * Absolute epoch-ms deadline for the enrich stage. A deadline rather than a
+     * budget, because fetching is the variable part: if the sources were slow,
+     * enrichment gets correspondingly less time instead of blowing the ceiling.
+     */
+    enrichDeadline?: number;
+  } = {}
 ): Promise<PipelineResult> {
   const today = opts.today ?? todayISO();
   const log = opts.log ?? (() => {});
@@ -221,7 +279,7 @@ export async function runPipeline(
   const alive = checked.filter((e) => e.link_ok);
 
   log('enrich');
-  const enriched = await stageEnrich(alive, today, 4, log);
+  const enriched = await stageEnrich(alive, today, 4, log, opts.cached, opts.enrichDeadline);
   tokens += enriched.tokens;
 
   log('filter');
@@ -247,6 +305,7 @@ export async function runPipeline(
       final: ranked.length,
       tokens,
       drops: { ...dropSummary(pre.dropped), ...dropSummary(final.dropped) },
+      enrichIncomplete: enriched.incomplete,
     },
   };
 }

@@ -22,6 +22,28 @@ export function isISODate(s: unknown): s is string {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
 
+/**
+ * A Postgres DATE, as whatever the driver handed us, -> yyyy-mm-dd.
+ *
+ * The driver builds a DATE into a JS Date at LOCAL midnight. In IST (UTC+5:30)
+ * `new Date('2026-10-24')` local midnight is 2026-10-23T18:30:00Z, so
+ * `.toISOString().slice(0,10)` silently returns the day before. That shifted
+ * every date in the system back one day until it was caught by comparing two
+ * runs. Read the local calendar components instead, never the UTC ones.
+ */
+export function pgDateToISO(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return null;
+    const y = v.getFullYear();
+    const m = String(v.getMonth() + 1).padStart(2, '0');
+    const d = String(v.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(v);
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null;
+}
+
 /** yyyy-mm-dd -> epoch ms at UTC midnight. Returns null for anything invalid. */
 export function toUTCDay(iso: string | null | undefined): number | null {
   if (!isISODate(iso)) return null;

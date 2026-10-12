@@ -4,5 +4,9 @@
       "path": "/api/cron/monday",
       "schedule": "0 2 * * 1"
     }
-  ]
+  ],
+  "functions": {
+    "src/app/api/cron/monday/route.ts": { "maxDuration": 300 },
+    "src/app/api/admin/send/route.ts": { "maxDuration": 60 }
+  }
 }
