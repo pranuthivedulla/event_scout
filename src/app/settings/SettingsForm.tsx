@@ -183,20 +183,6 @@ export function SettingsForm({ initial, updatedAt }: { initial: Settings; update
       </section>
 
       <section className="glass-lg panel" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <h2 className="h2">How your digest works</h2>
-        <p className="note" style={{ margin: 0 }}>Fixed. Shown so you know what to expect.</p>
-        <ul className="note" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
-          <li>Up to 15 new events each Monday, ranked by fit. Events on your calendar are extra, never capped.</li>
-          <li>In-person and hybrid only. Purely online events are excluded.</li>
-          <li>A red badge means under 7 days. It says <strong>Closes in N days</strong> only when a source actually published a registration deadline; otherwise it counts down to the event and says so.</li>
-          <li>No source we have found publishes registration deadlines, so most events read &ldquo;Deadline unknown&rdquo;. That is honest, not broken.</li>
-          <li>Add to calendar records your interest and nothing more. The system never knows, and never claims, that you registered.</li>
-          <li>If a source fails, the digest still sends and names the one that failed.</li>
-          <li>When something urgent also matches a focus area, the email links to a short spoken summary you can play on the way in. Weeks with nothing both urgent and relevant carry no clip.</li>
-        </ul>
-      </section>
-
-      <section className="glass-lg panel" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
           <label style={{ flex: '1 1 200px' }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Passcode</div>
