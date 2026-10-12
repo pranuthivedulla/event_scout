@@ -16,12 +16,17 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 /**
- * Hobby cuts the function at 300s. Stop enriching at 130s from the start so
- * scoring, persisting, rendering and the SMTP send all still fit afterwards.
- * Whatever is left unenriched keeps its event — only its summary is missing —
- * and the continuation pass fills it in after the digest has gone.
+ * Hobby cuts the function at 300s. Stop enriching at this point so scoring,
+ * persisting, rendering and the SMTP send all still fit afterwards. Whatever
+ * is left unenriched keeps its event — only its summary is missing — and the
+ * continuation pass fills it in after the digest has gone.
+ *
+ * Measured in production: at a 130s cutoff the whole run took 177s, so the
+ * stages after enrichment cost ~47s. Raised to 170s, which leaves roughly
+ * 300 - 170 - 50 (a batch already in flight when the deadline passes) - 47
+ * = ~33s of margin, and gets noticeably more events summarised.
  */
-const ENRICH_DEADLINE_MS = 130_000;
+const ENRICH_DEADLINE_MS = 170_000;
 
 /**
  * The Monday run.
