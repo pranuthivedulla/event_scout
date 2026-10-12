@@ -20,9 +20,7 @@ export function VoiceNote({
         <h2 className="h2" style={{ fontSize: 20 }}>Voice note</h2>
         <p className="note" style={{ marginTop: 6, marginBottom: 0 }}>
           Nothing recorded. A note is only made when something is both closing
-          or starting within seven days <em>and</em> matches one of your focus
-          areas. This week nothing is — the relevant events are further out,
-          and the near ones match nothing.
+          or starting within seven days and matches one of your focus areas.
         </p>
       </section>
     );
