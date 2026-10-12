@@ -24,6 +24,35 @@ export function AdminPanel() {
     } catch { /* the log is a nicety; its failure must not block a send */ }
   }
 
+  /**
+   * Confetti on a confirmed send, and only then.
+   *
+   * canvas-confetti, the same library MagicUI's component wraps, fired
+   * imperatively because there is nothing to render until the server has
+   * actually said the mail went. Loaded on demand so it is not in the bundle
+   * for anyone who never opens this panel.
+   */
+  async function celebrate() {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    try {
+      const confetti = (await import('canvas-confetti')).default;
+      const base = {
+        startVelocity: 38,
+        gravity: 0.9,
+        ticks: 220,
+        zIndex: 9999,
+        // the dashboard's own greens, not the library's default primaries
+        colors: ['#0f5c49', '#1a7f64', '#2fb58f', '#dcf1e8', '#ffffff'],
+        shapes: ['square', 'circle'] as ('square' | 'circle')[],
+      };
+      // two cannons from the lower corners, angled inward
+      confetti({ ...base, particleCount: 55, angle: 60, spread: 58, origin: { x: 0.1, y: 0.85 } });
+      confetti({ ...base, particleCount: 55, angle: 120, spread: 58, origin: { x: 0.9, y: 0.85 } });
+    } catch {
+      // a missing animation is never a reason to look like the send failed
+    }
+  }
+
   async function send() {
     setBusy(true);
     setResult(null);
@@ -34,7 +63,9 @@ export function AdminPanel() {
         body: JSON.stringify({ passcode, to: to.trim() || undefined }),
       });
       const j = await r.json();
-      setResult({ ok: r.ok && j.ok, message: j.message ?? (r.ok ? 'Sent.' : 'Failed.'), at: j.at, id: j.digestId });
+      const ok = r.ok && j.ok;
+      setResult({ ok, message: j.message ?? (r.ok ? 'Sent.' : 'Failed.'), at: j.at, id: j.digestId });
+      if (ok) void celebrate();
       await refreshLog();
     } catch (e) {
       setResult({ ok: false, message: e instanceof Error ? e.message : 'Network error' });
