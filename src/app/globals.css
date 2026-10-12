@@ -343,89 +343,61 @@ button { font-family: inherit; }
   .filter-panel > * { animation: none; }
 }
 
-/* ------------------------------------------------- digest archive: card swap */
-/* A stack with depth and perspective, modelled on ReactBits' CardSwap but
-   driven by the reader rather than a timer: an archive that moves on its own
-   takes the answer away while you are reading it. */
+/* ----------------------------------------- digest archive: CardSwap stack */
+/* Geometry and motion from ReactBits' CardSwap, driven by GSAP in the
+   component. The stage owns the perspective; GSAP owns every transform on
+   the cards, so nothing here may set one. */
 .stack-wrap { display: flex; flex-direction: column; gap: 14px; }
 
-.stack {
+.swap-stage {
   position: relative;
+  width: 100%;
   perspective: 1200px;
-  perspective-origin: 50% 20%;
-  min-height: 210px;
+  transform: translateZ(0);
+  overflow: visible;
+}
+.swap-3d {
+  position: absolute;
+  inset: 0;
   transform-style: preserve-3d;
 }
 
-.stack-card {
+.swap-card {
   position: absolute;
-  inset: 0 0 auto 0;
+  top: 50%;
+  left: 42%;
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  text-align: left;
+  gap: 6px;
   padding: 18px 20px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.74);
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
   border: 1px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 14px 34px rgba(31, 76, 66, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  transform-origin: 50% 0%;
-  transition: transform .52s cubic-bezier(.22, .61, .36, 1),
-              opacity .42s ease,
-              box-shadow .42s ease;
+  box-shadow: 0 16px 38px rgba(31, 76, 66, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transform-style: preserve-3d;
   will-change: transform;
+  backface-visibility: hidden;
+  cursor: pointer;
+  overflow: hidden;
 }
-.stack-card.is-front {
+.swap-card.is-front {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: #bfe0d3;
+  box-shadow: 0 22px 48px rgba(31, 76, 66, 0.22), inset 0 1px 0 #fff;
   cursor: default;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 20px 44px rgba(31, 76, 66, 0.2), inset 0 1px 0 #fff;
 }
-.stack-card:not(.is-front):hover { filter: brightness(1.03); }
-.stack-card:focus-visible { outline: 2px solid var(--green-mid); outline-offset: 3px; }
+.swap-card:focus-visible { outline: 2px solid var(--green-mid); outline-offset: 3px; }
 
-.stack-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 15px; }
-.stack-subject { font-size: 14px; font-weight: 700; color: var(--ink); line-height: 1.4; }
-.stack-meta { font-size: 13px; color: var(--muted); }
-.stack-to { font-size: 12px; color: var(--faint); }
+.swap-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 15px; color: var(--ink); }
+.swap-subject { font-size: 14px; font-weight: 700; color: var(--ink); line-height: 1.4; }
+.swap-meta { font-size: 13px; color: var(--muted); }
+.swap-to { font-size: 12px; color: var(--faint); }
 
-.stack-controls { display: flex; align-items: center; gap: 12px; }
-.stack-controls .chip { min-width: 42px; text-align: center; font-size: 16px; }
+.stack-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 
-/* The swap itself. The outgoing card drops forward and tips before falling to
-   the back, so the eye follows one card leaving rather than the whole stack
-   shuffling. Everything behind it promotes on the plain transition above. */
-.stack-card.is-leaving {
-  transition: none;
-  animation: card-eject .62s cubic-bezier(.33, .01, .28, 1) forwards;
-}
-
-@keyframes card-eject {
-  0% {
-    transform: translateY(0) translateZ(0) scale(1) rotate(0deg);
-    opacity: 1;
-  }
-  38% {
-    /* forward and out of the stack, tipping as it goes */
-    transform: translateY(96px) translateZ(130px) scale(1.04) rotate(-7deg);
-    opacity: 1;
-  }
-  62% {
-    transform: translateY(120px) translateZ(-40px) scale(.94) rotate(-4deg);
-    opacity: .72;
-  }
-  100% {
-    /* settles into whatever slot it now occupies at the back */
-    transform: var(--rest-transform);
-    opacity: var(--rest-opacity);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stack-card { transition: none; }
-  .stack-card.is-leaving { animation: none; }
+@media (max-width: 640px) {
+  .swap-card { left: 50%; padding: 15px 16px; border-radius: 17px; }
+  .swap-subject { font-size: 13px; }
 }
