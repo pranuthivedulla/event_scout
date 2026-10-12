@@ -26,7 +26,7 @@ interface Check {
 
 function check(
   name: string,
-  opts: { required?: boolean; expectLength?: number; startsWith?: string; endsWith?: string; pattern?: RegExp; allowSpaces?: boolean }
+  opts: { required?: boolean; expectLength?: number; startsWith?: string; contains?: string; pattern?: RegExp; allowSpaces?: boolean }
 ): Check {
   const raw = process.env[name];
   const present = Boolean(raw && raw.length);
@@ -48,7 +48,9 @@ function check(
   if (!opts.allowSpaces && /\s/.test(v.trim())) problems.push('contains a space in the middle');
   if (/^[A-Z][A-Z0-9_]{3,}=/.test(v)) problems.push('starts with a VARIABLE NAME — the "NAME=" prefix was copied too');
   if (opts.startsWith && !v.startsWith(opts.startsWith)) problems.push(`should start with "${opts.startsWith}"`);
-  if (opts.endsWith && !v.endsWith(opts.endsWith)) problems.push(`should end with "${opts.endsWith}" — it may be truncated`);
+  if (opts.contains && !v.includes(opts.contains)) {
+    problems.push(`is missing "${opts.contains}" — it may be truncated`);
+  }
   if (opts.pattern && !opts.pattern.test(v)) problems.push('does not look like the right format');
   if (opts.expectLength && v.length !== opts.expectLength) {
     problems.push(`is ${v.length} characters, expected ${opts.expectLength}`);
@@ -69,7 +71,9 @@ export async function GET(req: Request) {
   }
 
   const checks: Check[] = [
-    check('DATABASE_URL', { startsWith: 'postgres', endsWith: 'sslmode=require' }),
+    // Neon appends &channel_binding=require after sslmode, so this must be a
+    // "contains", not an "ends with" — the stricter rule was a false alarm.
+    check('DATABASE_URL', { startsWith: 'postgres', contains: 'sslmode=require' }),
     check('GEMINI_API_KEY', { pattern: /^(AQ\.|AIza)[A-Za-z0-9_-]+$/ }),
     check('SMTP_USER', { pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ }),
     // Google app passwords are 16 characters, usually shown in four groups
