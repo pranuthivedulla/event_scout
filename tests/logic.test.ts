@@ -14,6 +14,7 @@ import { isISODate, daysBetween, addDays, urgency, calendarDate, googleCalendarU
 import { hardFilter, matchCity, dropSummary } from '../src/lib/filters';
 import { rank, applyCap, rankValue, mergeDuplicates, fingerprint, sortForDisplay } from '../src/lib/rank';
 import { buildDeadlineScript } from '../src/lib/tts';
+import { redactSecrets, safeMessage } from '../src/lib/redact';
 import type { ScoutEvent, Settings } from '../src/lib/types';
 
 const TODAY = '2026-10-12'; // a Monday
@@ -429,4 +430,48 @@ test('sortForDisplay honours the same rule using the stored rank value', () => {
   const noise = ev({ title: 'Noise', score: 0, start_date: '2026-10-13', rank_value: 0 });
   const out = sortForDisplay([far, noise, urgent], TODAY);
   assert.deepEqual(out.map((e) => e.title), ['Urgent', 'Far', 'Noise']);
+});
+
+// ---------------------------------------------------------------- redaction
+
+test('a secret pasted into an error message never survives', () => {
+  // This happened in production: GEMINI_API_KEY was pasted into Vercel with a
+  // trailing newline, dragging the next .env line with it. fetch() threw
+  // 'Headers.append: "<key>\nADMIN_PASSCODE=..." is an invalid header value'
+  // and the raw text went into the HTTP response, the database, and would
+  // have gone into the digest email.
+  const before = { ...process.env };
+  process.env.GEMINI_API_KEY = 'AQ.Ab8RN6IU02GOmSpUw5q2mIPC9mOR4Q0wjD8AYlTJ';
+  process.env.ADMIN_PASSCODE = 'moss-thistle-63';
+  try {
+    const leak = `Headers.append: "${process.env.GEMINI_API_KEY}\nADMIN_PASSCODE=${process.env.ADMIN_PASSCODE}" is an invalid header value.`;
+    const safe = redactSecrets(leak);
+    assert.ok(!safe.includes('AQ.Ab8RN6IU'), 'the API key must not survive');
+    assert.ok(!safe.includes('moss-thistle-63'), 'the passcode must not survive');
+    assert.ok(safe.includes('invalid header value'), 'the useful part is kept');
+  } finally {
+    process.env = before;
+  }
+});
+
+test('a connection string and its password are both redacted', () => {
+  const before = { ...process.env };
+  process.env.DATABASE_URL = 'postgresql://neondb_owner:npg_S3cretPw123@ep-x-pooler.aws.neon.tech/event_scout?sslmode=require';
+  try {
+    const safe = redactSecrets(`connect failed for ${process.env.DATABASE_URL} (password npg_S3cretPw123)`);
+    assert.ok(!safe.includes('npg_S3cretPw123'), 'the password must not survive anywhere');
+    assert.ok(!safe.includes('neon.tech'), 'nor the host');
+  } finally {
+    process.env = before;
+  }
+});
+
+test('key-shaped strings are redacted even when we do not hold them', () => {
+  assert.ok(!redactSecrets('token AIzaSyCOeX0pHblpZDw7qCuZVFLx5SdObZXaYk failed').includes('AIzaSy'));
+  assert.ok(!redactSecrets('using AQ.AbCdEfGhIjKlMnOpQrStUv now').includes('AQ.AbCdEf'));
+});
+
+test('redaction leaves ordinary error text alone', () => {
+  assert.equal(redactSecrets('HTTP 503 from the organiser site'), 'HTTP 503 from the organiser site');
+  assert.equal(safeMessage(new Error('page could not be read')), 'page could not be read');
 });

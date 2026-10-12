@@ -9,6 +9,7 @@ import { runPipeline } from '@/lib/pipeline';
 import { renderDigest, appUrl } from '@/lib/email';
 import { MAX_NEW_EVENTS } from '@/config';
 import { todayISO } from '@/lib/dates';
+import { safeMessage } from '@/lib/redact';
 
 export const dynamic = 'force-dynamic';
 /** Hobby's ceiling is 300s, and that is also its default with Fluid compute. */
@@ -131,7 +132,7 @@ export async function GET(req: Request) {
       stats: result.stats, sources: result.sourceRuns,
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = safeMessage(e);
     await updateRun(runId, { status: 'failed', error: msg });
     await logSend({ kind: 'monday_auto', result: 'error', error: msg });
     return NextResponse.json({ ok: false, runId, error: msg, log }, { status: 500 });

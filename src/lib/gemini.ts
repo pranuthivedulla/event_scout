@@ -18,6 +18,7 @@ import {
 } from '@/config';
 import type { EventFormat, ScoutEvent, Settings } from './types';
 import { isISODate } from './dates';
+import { safeMessage } from './redact';
 
 export class GeminiError extends Error {
   constructor(message: string, readonly status?: number) {
@@ -110,7 +111,9 @@ export async function callGemini(opts: CallOpts): Promise<CallResult> {
     return { text, retrieval, tokens: json.usage?.total_tokens ?? 0 };
   }
 
-  throw lastErr instanceof Error ? lastErr : new GeminiError('Gemini call failed');
+  // A fetch failure can carry the key itself (a mis-pasted env var becomes an
+  // invalid header, and the message quotes it). Never rethrow it unscrubbed.
+  throw new GeminiError(safeMessage(lastErr) || 'Gemini call failed');
 }
 
 function safeParse(s: string): unknown {

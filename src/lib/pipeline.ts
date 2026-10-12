@@ -17,6 +17,7 @@ import { fetchLuma } from './sources/luma';
 import { fetchPageSource } from './sources/page';
 import { checkLinks } from './linkcheck';
 import { enrichEvents, scoreEvents } from './gemini';
+import { safeMessage } from './redact';
 
 export interface PipelineStats {
   found: number;
@@ -97,8 +98,10 @@ export async function stageFetch(
       log(`  ${src.label}: ${found.length} events`);
       return { run: { source: src.label, ok: true, error: null, found: found.length, ran_at }, found, tokens: used };
     } catch (e) {
-      // A failing source must never break the run. It is reported instead.
-      const msg = e instanceof Error ? e.message : String(e);
+      // A failing source must never break the run. It is reported instead —
+      // scrubbed, because an exception can carry a key that was mis-pasted
+      // into an env var straight into the digest's source-status line.
+      const msg = safeMessage(e);
       log(`  ${src.label}: FAILED (${msg})`);
       return { run: { source: src.label, ok: false, error: msg, found: 0, ran_at }, found: [], tokens: 0 };
     }
@@ -190,7 +193,7 @@ export async function stageEnrich(
       log(`  enriched ${Math.min(i + batchSize, todo.length)}/${todo.length}`);
     } catch (e) {
       // Enrichment is additive. Losing a batch costs summaries, not events.
-      log(`  enrich batch ${i / batchSize + 1} failed: ${e instanceof Error ? e.message : e}`);
+      log(`  enrich batch ${i / batchSize + 1} failed: ${safeMessage(e)}`);
     }
   }
 
@@ -221,7 +224,7 @@ export async function stageScore(
         return r;
       } catch (e) {
         // Unscored events rank at the bottom rather than disappearing.
-        log(`  score batch ${n + 1} failed: ${e instanceof Error ? e.message : e}`);
+        log(`  score batch ${n + 1} failed: ${safeMessage(e)}`);
         return { scorings: [], tokens: 0 };
       }
     })
