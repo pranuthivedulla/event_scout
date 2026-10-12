@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import {
   getSettings, upcomingEvents, calendarEvents, latestSourceRuns,
-  insertDigest, logSend, testSendsToday,
+  logSend, testSendsToday,
 } from '@/lib/db';
-import { renderDigest, sendDigest } from '@/lib/email';
+import { prepareAndSend } from '@/lib/digest';
 import { DAILY_SEND_CAP, MAX_NEW_EVENTS } from '@/config';
 import { todayISO } from '@/lib/dates';
 
@@ -66,32 +66,18 @@ export async function POST(req: Request) {
     upcomingEvents(60), calendarEvents(), latestSourceRuns(),
   ]);
 
-  const rendered = renderDigest({
+  const result = await prepareAndSend({
+    kind: 'test_send',
+    to,
     newEvents: all.slice(0, MAX_NEW_EVENTS),
     calendar,
     sourceRuns,
-    sentAt: new Date(),
     today,
   });
 
-  const sent = await sendDigest(to, rendered);
-
-  if (!sent.ok) {
-    await logSend({ kind: 'test_send', result: 'error', recipient: to, error: sent.error });
-    return NextResponse.json({ ok: false, message: `Not sent: ${sent.error}` }, { status: 502 });
+  if (!result.ok) {
+    return NextResponse.json({ ok: false, message: `Not sent: ${result.error}` }, { status: 502 });
   }
-
-  const digestId = await insertDigest({
-    runId: null,
-    kind: 'test_send',
-    recipient: to,
-    subject: rendered.subject,
-    newCount: rendered.newCount,
-    calendarCount: rendered.calendarCount,
-    closingCount: rendered.closingCount,
-    html: rendered.html,
-  });
-  await logSend({ kind: 'test_send', result: 'sent', recipient: to, messageId: sent.messageId });
 
   const at = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short',
@@ -99,9 +85,12 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    message: `Sent to ${to} at ${at} IST — ${rendered.newCount} events, ${rendered.calendarCount} on the calendar.`,
+    message:
+      `Sent to ${to} at ${at} IST — ${result.rendered.newCount} events, ` +
+      `${result.rendered.calendarCount} on the calendar` +
+      (result.audioSeconds ? `, with a ${Math.round(result.audioSeconds)}s voice note.` : '.'),
     at,
-    digestId,
+    digestId: result.digestId,
   });
 }
 

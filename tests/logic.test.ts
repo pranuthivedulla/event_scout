@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { isISODate, daysBetween, addDays, urgency, calendarDate, googleCalendarUrl, formatRange, pgDateToISO } from '../src/lib/dates';
 import { hardFilter, matchCity, dropSummary } from '../src/lib/filters';
 import { rank, applyCap, rankValue, mergeDuplicates, fingerprint } from '../src/lib/rank';
+import { buildDeadlineScript } from '../src/lib/tts';
 import type { ScoutEvent, Settings } from '../src/lib/types';
 
 const TODAY = '2026-10-12'; // a Monday
@@ -29,9 +30,12 @@ const settings: Settings = {
   window_days: 90,
 };
 
+let evSeq = 0;
 const ev = (over: Partial<ScoutEvent> = {}): ScoutEvent => ({
   source: 'luma',
-  source_url: 'https://example.com/e/1',
+  // distinct per event: dedup keys on the URL, so sharing one would collapse
+  // two different test events into one
+  source_url: `https://example.com/e/${++evSeq}`,
   title: 'Core Banking Modernisation Roundtable',
   start_date: '2026-11-20',
   end_date: null,
@@ -324,4 +328,62 @@ test('pgDateToISO passes strings through and rejects junk', () => {
   assert.equal(pgDateToISO(''), null);
   assert.equal(pgDateToISO(new Date('nonsense')), null);
   assert.equal(pgDateToISO('not a date'), null);
+});
+
+// ------------------------------------------------------- spoken deadline note
+
+test('the voice note skips urgent events that match no focus area', () => {
+  // The first recorded clip spent 47 seconds reading out iOS meetups and a
+  // wellness talk, because the soonest events are often the least relevant.
+  // They stay in the email and on the dashboard; they are just not spoken.
+  const relevant = ev({ title: 'Payments Roundtable', score: 4, start_date: '2026-10-15' });
+  const noise = ev({ title: 'Swift Bengaluru x Okta', score: 0, start_date: '2026-10-14' });
+  const script = buildDeadlineScript([noise, relevant], [], TODAY);
+  assert.ok(script);
+  assert.equal(script!.count, 1);
+  assert.ok(script!.text.includes('Payments Roundtable'));
+  assert.ok(!script!.text.includes('Swift'), 'a 0/5 event must not be read aloud');
+});
+
+test('anything on the calendar is spoken whatever it scored', () => {
+  // He put it there himself, so it is relevant by his own choice.
+  const pinned = ev({ title: 'Odd One Out', score: 0, start_date: '2026-10-15', fingerprint: 'fp-1' });
+  const script = buildDeadlineScript([], [pinned], TODAY);
+  assert.ok(script);
+  assert.ok(script!.text.includes('Odd One Out'));
+});
+
+test('no clip is recorded when nothing is both urgent and relevant', () => {
+  const faraway = ev({ title: 'ETBFSI Converge', score: 5, start_date: '2026-12-10' });
+  const soonButIrrelevant = ev({ title: 'Embedded Swift', score: 0, start_date: '2026-10-13' });
+  assert.equal(buildDeadlineScript([faraway, soonButIrrelevant], [], TODAY), null);
+});
+
+test('a stated deadline and an event date are spoken differently', () => {
+  const stated = ev({ title: 'Alpha', score: 4, registration_deadline: '2026-10-15' });
+  const unstated = ev({ title: 'Beta', score: 4, start_date: '2026-10-15' });
+
+  const a = buildDeadlineScript([stated], [], TODAY)!;
+  assert.ok(a.text.includes('closes for registration'), 'a stated deadline says so');
+  assert.ok(!a.text.includes('no registration deadline was published'));
+
+  const b = buildDeadlineScript([unstated], [], TODAY)!;
+  assert.ok(b.text.includes('takes place'), 'an event date must not be called a deadline');
+  assert.ok(b.text.includes('no registration deadline was published'), 'and must be disclosed');
+});
+
+test('titles are tidied for speech without changing the event', () => {
+  const messy = ev({
+    title: '-1 to Swiggy with Nandan Reddy | South Park Commons (BLR)',
+    score: 3, start_date: '2026-10-15',
+  });
+  const text = buildDeadlineScript([messy], [], TODAY)!.text;
+  assert.ok(!text.includes('|'), 'pipe suffixes are dropped');
+  assert.ok(!text.includes('(BLR)'), 'bracketed suffixes are dropped');
+  assert.ok(text.includes('-1 to Swiggy with Nandan Reddy'));
+});
+
+test('acronyms are spelled out so they are read as letters', () => {
+  const e = ev({ title: 'ETBFSI Converge', score: 5, start_date: '2026-10-15' });
+  assert.ok(buildDeadlineScript([e], [], TODAY)!.text.includes('E T B F S I'));
 });

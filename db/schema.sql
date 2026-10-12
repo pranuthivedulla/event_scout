@@ -111,6 +111,13 @@ CREATE TABLE IF NOT EXISTS digests (
 
 CREATE INDEX IF NOT EXISTS digests_sent_at_idx ON digests (sent_at DESC);
 
+-- The spoken deadline note. Only present when something was actually flagged;
+-- we never generate a clip that says "nothing is urgent". The script is
+-- composed in plain code and stored alongside, so what was said is auditable.
+ALTER TABLE digests ADD COLUMN IF NOT EXISTS audio         bytea;
+ALTER TABLE digests ADD COLUMN IF NOT EXISTS audio_script  text;
+ALTER TABLE digests ADD COLUMN IF NOT EXISTS audio_seconds numeric(5,1);
+
 -- --------------------------------------------------------------------------
 -- send_log: every send attempt, successful or not. Drives the daily cap.
 -- The Monday auto-send is logged but does NOT consume one of the 10

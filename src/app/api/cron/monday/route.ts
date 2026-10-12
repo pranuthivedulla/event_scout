@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import { after } from 'next/server';
 import {
   getSettings, createRun, updateRun, upsertEvents, recordSourceRuns,
-  existingEnrichment, upcomingEvents, calendarEvents, insertDigest, logSend,
+  existingEnrichment, upcomingEvents, calendarEvents, logSend,
 } from '@/lib/db';
+import { prepareAndSend } from '@/lib/digest';
 import { runPipeline } from '@/lib/pipeline';
-import { renderDigest, sendDigest, appUrl } from '@/lib/email';
+import { renderDigest, appUrl } from '@/lib/email';
 import { MAX_NEW_EVENTS } from '@/config';
 import { todayISO } from '@/lib/dates';
 
@@ -95,25 +96,20 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, runId, error: 'no recipient configured', stats: result.stats }, { status: 500 });
     }
 
-    const sent = await sendDigest(to, rendered);
-
-    // The Monday send is logged but does NOT consume one of the 10 admin sends,
-    // and is never blocked by that cap (components map note 2).
-    if (sent.ok) {
-      await insertDigest({
-        runId, kind: 'monday_auto', recipient: to, subject: rendered.subject,
-        newCount: rendered.newCount, calendarCount: rendered.calendarCount,
-        closingCount: rendered.closingCount, html: rendered.html,
-      });
-      await logSend({ kind: 'monday_auto', result: 'sent', recipient: to, messageId: sent.messageId });
-    } else {
-      await logSend({ kind: 'monday_auto', result: 'error', recipient: to, error: sent.error });
-    }
+    const delivered = await prepareAndSend({
+      kind: 'monday_auto',
+      to,
+      newEvents: all.slice(0, MAX_NEW_EVENTS),
+      calendar,
+      sourceRuns: result.sourceRuns,
+      today,
+      runId,
+    });
 
     await updateRun(runId, {
       stage: 'done',
-      status: sent.ok ? 'done' : 'failed',
-      error: sent.error,
+      status: delivered.ok ? 'done' : 'failed',
+      error: delivered.error,
       stats: result.stats,
     });
 
@@ -130,8 +126,9 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({
-      ok: sent.ok, runId, sentTo: sent.ok ? to : null, error: sent.error,
-      subject: rendered.subject, stats: result.stats, sources: result.sourceRuns,
+      ok: delivered.ok, runId, sentTo: delivered.ok ? to : null, error: delivered.error,
+      subject: delivered.rendered.subject, audioSeconds: delivered.audioSeconds,
+      stats: result.stats, sources: result.sourceRuns,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -140,6 +140,12 @@ export interface DigestInput {
   sourceRuns: SourceRun[];
   sentAt: Date;
   today?: string;
+  /**
+   * The spoken deadline note, when one was recorded. Audio cannot play inside
+   * an email, so this is a LINK to the player, never an embedded element.
+   * Everything in the digest works with this ignored.
+   */
+  audio?: { digestId: number; seconds: number } | null;
 }
 
 export interface RenderedDigest {
@@ -189,6 +195,27 @@ export function renderDigest(input: DigestInput): RenderedDigest {
         }`;
 
   const body: string[] = [];
+
+  // A link, not a player: no mainstream email client runs <audio> or script.
+  // It sits above the content and is purely additive.
+  if (input.audio) {
+    const href = `${appUrl()}/listen/${input.audio.digestId}`;
+    body.push(`
+<tr><td style="padding:20px 0 0;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+         style="background:#eef5f2;border:1px solid ${LINE};border-radius:10px;">
+    <tr><td style="padding:14px 16px;font-family:${FONT};">
+      <div style="font-size:14px;font-weight:700;color:${INK};">
+        ${closing} ${closing === 1 ? 'thing needs' : 'things need'} you this week
+      </div>
+      <div style="font-size:13px;color:${MUTED};padding:3px 0 10px;">
+        ${Math.round(input.audio.seconds)}-second spoken summary, for the commute.
+      </div>
+      ${button(href, 'Listen', false)}
+    </td></tr>
+  </table>
+</td></tr>`);
+  }
 
   if (input.calendar.length) {
     body.push(section('On your calendar', 'Stays here every Monday until it closes.'));
@@ -262,6 +289,7 @@ export function renderDigest(input: DigestInput): RenderedDigest {
     '',
     sourceStatusLine(input.sourceRuns),
     '',
+    ...(input.audio ? [`Spoken summary (${Math.round(input.audio.seconds)}s): ${appUrl()}/listen/${input.audio.digestId}`, ''] : []),
     ...(input.calendar.length
       ? ['ON YOUR CALENDAR', ...input.calendar.map((e) => `  ${e.title} — ${e.city ?? ''} — ${e.registration_deadline ? `closes ${formatDay(e.registration_deadline, today)}` : `event ${formatDay(e.start_date, today)}`}`), '']
       : []),

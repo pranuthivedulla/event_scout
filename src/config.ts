@@ -10,6 +10,14 @@ export const GEMINI_API_URL =
 /** Interactions API revision pin. Verified against ai.google.dev, 11 Oct 2026. */
 export const GEMINI_API_REVISION = '2026-05-20';
 
+/**
+ * Text-to-speech for the spoken deadline note. Still a Gemini Flash model, so
+ * the exam's "Gemini Flash is the only AI" rule holds; it is a separate id
+ * because TTS models only output audio.
+ */
+export const GEMINI_TTS_MODEL = process.env.GEMINI_TTS_MODEL ?? 'gemini-3.8-flash-tts';
+export const TTS_VOICE = process.env.TTS_VOICE ?? 'Kore';
+
 /** Display timezone. Everything is STORED in UTC. */
 export const DISPLAY_TZ = 'Asia/Kolkata';
 

@@ -312,6 +312,42 @@ export async function listDigests(limit = 40) {
   }));
 }
 
+export async function saveDigestAudio(
+  id: number,
+  audio: Buffer,
+  script: string,
+  seconds: number
+): Promise<void> {
+  await q('UPDATE digests SET audio = $2, audio_script = $3, audio_seconds = $4 WHERE id = $1',
+    [id, audio, script, seconds]);
+}
+
+export async function getDigestAudio(
+  id: number
+): Promise<{ audio: Buffer; script: string; seconds: number } | null> {
+  const rows = await q('SELECT audio, audio_script, audio_seconds FROM digests WHERE id = $1', [id]);
+  const r = rows[0];
+  if (!r?.audio) return null;
+  const raw = r.audio as unknown;
+  // The HTTP driver returns bytea as the Postgres hex string "\x89504e..."
+  const audio = Buffer.isBuffer(raw)
+    ? raw
+    : Buffer.from(String(raw).replace(/^\\x/, ''), 'hex');
+  return { audio, script: String(r.audio_script ?? ''), seconds: Number(r.audio_seconds ?? 0) };
+}
+
+export async function digestSummary(id: number) {
+  const rows = await q('SELECT id, sent_at, subject, audio_seconds FROM digests WHERE id = $1', [id]);
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    id: Number(r.id),
+    sent_at: new Date(String(r.sent_at)).toISOString(),
+    subject: String(r.subject),
+    audio_seconds: r.audio_seconds === null || r.audio_seconds === undefined ? null : Number(r.audio_seconds),
+  };
+}
+
 export async function digestHtml(id: number): Promise<{ html: string; subject: string } | null> {
   const rows = await q('SELECT html, subject FROM digests WHERE id = $1', [id]);
   return rows[0] ? { html: String(rows[0].html), subject: String(rows[0].subject) } : null;
@@ -438,4 +474,13 @@ export async function existingEnrichment(
     });
   }
   return out;
+}
+
+export async function updateDigestHtml(id: number, html: string): Promise<void> {
+  await q('UPDATE digests SET html = $2 WHERE id = $1', [id, html]);
+}
+
+/** Used only to clean up a digest row whose send then failed. */
+export async function deleteDigest(id: number): Promise<void> {
+  await q('DELETE FROM digests WHERE id = $1', [id]);
 }
