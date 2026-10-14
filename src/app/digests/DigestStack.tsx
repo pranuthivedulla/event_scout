@@ -1,7 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import gsap from 'gsap';
+import { useEffect, useMemo, useState } from 'react';
 import { DISPLAY_TZ } from '@/config';
 
 export interface DigestRow {
@@ -18,45 +17,19 @@ export interface DigestRow {
 }
 
 /**
- * The archive as a CardSwap stack (ReactBits, via superdev), adopted to this
- * dashboard's glass and greens.
+ * The archive as a row of digests that glides sideways and stops when you
+ * point at it.
  *
- * The motion is theirs and is the whole point of using it: the front card
- * drops straight down out of the stack, the rest promote on a stagger that
- * starts while it is still falling, and only then does the dropped card fly
- * back to the rear slot. Elastic easing throughout. An earlier hand-rolled
- * CSS version moved every card to its new slot at once, which reads as a
- * shuffle rather than a swap — the drop-and-return is what makes it legible.
+ * The pause is not decoration. A row that keeps moving under the cursor means
+ * you reach for a card and it slides away — the same fault as an archive that
+ * advances on a timer. It halts on hover AND on keyboard focus, so tabbing
+ * through it is not a moving target either.
  *
- * ONE deliberate departure: no auto-cycle. The original advances on a timer,
- * which is right for a showcase and wrong for an archive. This is a lookup
- * tool, the front card drives the email preview below it, and a stack that
- * advanced on its own would change the answer while you were reading it.
+ * The track holds the digests twice. The animation travels exactly one
+ * copy-width and restarts, which reads as an endless row rather than a list
+ * that snaps back. The second copy is hidden from assistive tech so the same
+ * digest is not announced twice.
  */
-
-const MAX_VISIBLE = 4;  // cards shown behind the front one; deeper ones fade out
-const SLOT_X = 44;   // cardDistance
-const SLOT_Y = 40;   // verticalDistance
-const SKEW = 4;      // skewAmount
-const DROP = 420;    // how far the ejected card falls before it returns
-
-const EASE = 'elastic.out(0.6,0.9)';
-const DUR_DROP = 1.1;
-const DUR_MOVE = 1.1;
-const DUR_RETURN = 1.1;
-const PROMOTE_OVERLAP = 0.9;
-const RETURN_DELAY = 0.05;
-
-interface Slot { x: number; y: number; z: number; zIndex: number }
-
-const makeSlot = (i: number, total: number, sx: number, sy: number): Slot => {
-  // Beyond MAX_VISIBLE the cards stop fanning and fade, so a long archive does
-  // not grow a stack taller than the page.
-  const d = Math.min(i, MAX_VISIBLE);
-  return { x: d * sx, y: -d * sy, z: -d * sx * 1.5, zIndex: total - i };
-};
-const slotOpacity = (i: number) => (i > MAX_VISIBLE ? 0 : 1 - Math.min(i, MAX_VISIBLE) * 0.06);
-
 export function DigestStack({
   digests,
   selectedId,
@@ -66,133 +39,32 @@ export function DigestStack({
   selectedId: number;
   initialHtml: string;
 }) {
-  const startIndex = Math.max(0, digests.findIndex((d) => d.id === selectedId));
-
-  const refs = useMemo(
-    () => digests.map(() => ({ current: null as HTMLDivElement | null })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [digests.length]
-  );
-  /** Front-to-back order of card indices, mutated by the swap as in the original. */
-  const order = useRef<number[]>(digests.map((_, i) => i));
-  const timeline = useRef<gsap.core.Timeline | null>(null);
-
-  const [frontIndex, setFrontIndex] = useState(startIndex);
+  const [openId, setOpenId] = useState<number | null>(null);
   const [html, setHtml] = useState(initialHtml);
   const [loading, setLoading] = useState(false);
-  const [compact, setCompact] = useState(false);
-  /** The preview is out of sight until a front card is clicked. */
-  const [previewOpen, setPreviewOpen] = useState(false);
 
-  const front = digests[frontIndex];
+  const open = useMemo(() => digests.find((d) => d.id === openId) ?? null, [digests, openId]);
 
-  // tighter spacing on a phone, where the fan would otherwise run off the edge
+  /** Load the email only when one is actually opened. */
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 640px)');
-    const sync = () => setCompact(mq.matches);
-    sync();
-    mq.addEventListener('change', sync);
-    return () => mq.removeEventListener('change', sync);
-  }, []);
-
-  const sx = compact ? 22 : SLOT_X;
-  const sy = compact ? 24 : SLOT_Y;
-
-  /** Put every card in its resting slot without animating. */
-  const place = useCallback(() => {
-    const total = refs.length;
-    order.current.forEach((cardIdx, pos) => {
-      const el = refs[cardIdx]?.current;
-      if (!el) return;
-      const slot = makeSlot(pos, total, sx, sy);
-      gsap.set(el, {
-        x: slot.x, y: slot.y, z: slot.z,
-        xPercent: -50, yPercent: -50,
-        skewY: SKEW,
-        transformOrigin: 'center center',
-        zIndex: slot.zIndex,
-        autoAlpha: slotOpacity(pos),
-        force3D: true,
-      });
-    });
-  }, [refs, sx, sy]);
-
-  useEffect(() => {
-    // open with the selected digest at the front
-    order.current = digests.map((_, i) => (i + startIndex) % digests.length);
-    place();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [place, digests.length]);
-
-  /**
-   * The swap, lifted from the original timeline: drop the front card, promote
-   * the rest on a stagger that begins while it is still falling, then send the
-   * dropped card round to the back.
-   */
-  const swap = useCallback(() => {
-    if (order.current.length < 2) return;
-    if (timeline.current?.isActive()) return;
-
-    const total = refs.length;
-    const [frontCard, ...rest] = order.current;
-    const elFront = refs[frontCard]?.current;
-    if (!elFront) return;
-
-    const tl = gsap.timeline();
-    timeline.current = tl;
-
-    tl.to(elFront, { y: `+=${DROP}`, duration: DUR_DROP, ease: EASE });
-
-    tl.addLabel('promote', `-=${DUR_DROP * PROMOTE_OVERLAP}`);
-    rest.forEach((cardIdx, i) => {
-      const el = refs[cardIdx]?.current;
-      if (!el) return;
-      const slot = makeSlot(i, total, sx, sy);
-      tl.set(el, { zIndex: slot.zIndex }, 'promote');
-      tl.to(el, { x: slot.x, y: slot.y, z: slot.z, autoAlpha: slotOpacity(i), duration: DUR_MOVE, ease: EASE },
-        `promote+=${i * 0.15}`);
-    });
-
-    const back = makeSlot(total - 1, total, sx, sy);
-    tl.addLabel('return', `promote+=${DUR_MOVE * RETURN_DELAY}`);
-    tl.call(() => { gsap.set(elFront, { zIndex: back.zIndex }); }, undefined, 'return');
-    tl.to(elFront, { x: back.x, y: back.y, z: back.z, autoAlpha: slotOpacity(total - 1), duration: DUR_RETURN, ease: EASE }, 'return');
-
-    tl.call(() => { order.current = [...rest, frontCard]; });
-
-    // The preview changes straight away. Waiting out a 1.1s elastic would make
-    // the thing you actually came to read feel slow.
-    setFrontIndex(rest[0]);
-  }, [refs, sx, sy]);
-
-  /** Clicking a card behind brings it forward, one swap at a time. */
-  const bringForward = useCallback((cardIdx: number) => {
-    const pos = order.current.indexOf(cardIdx);
-    if (pos <= 0) return;
-    for (let n = 0; n < pos; n++) window.setTimeout(swap, n * 240);
-  }, [swap]);
-
-  /** The email preview follows whichever card is in front. */
-  useEffect(() => {
-    if (!previewOpen) return;
-    if (!front || front.id === selectedId) { setHtml(initialHtml); return; }
+    if (!open) return;
+    if (open.id === selectedId) { setHtml(initialHtml); return; }
     let cancelled = false;
     setLoading(true);
-    fetch(`/api/digest/${front.id}/html`)
+    fetch(`/api/digest/${open.id}/html`)
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => { if (!cancelled && j?.html) setHtml(j.html); })
-      .catch(() => { /* keep the previous preview rather than blanking it */ })
+      .catch(() => { /* keep whatever was there rather than blanking it */ })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [front, selectedId, initialHtml, previewOpen]);
+  }, [open, selectedId, initialHtml]);
 
-  // Esc closes the preview, as a dialog should
   useEffect(() => {
-    if (!previewOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreviewOpen(false); };
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenId(null); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [previewOpen]);
+  }, [open]);
 
   if (!digests.length) return null;
 
@@ -202,94 +74,77 @@ export function DigestStack({
       hour: '2-digit', minute: '2-digit', hour12: false,
     }).format(new Date(iso));
 
-  const position = order.current.indexOf(frontIndex);
+  // Long enough that the row drifts rather than scrolls, and scaled to the
+  // number of cards so adding digests does not speed it up.
+  const seconds = Math.max(28, digests.length * 9);
+
+  const card = (d: DigestRow, copy: number) => (
+    <button
+      key={`${d.id}-${copy}`}
+      type="button"
+      className="glide-card"
+      aria-hidden={copy === 1}
+      tabIndex={copy === 1 ? -1 : 0}
+      onClick={() => setOpenId(d.id)}
+    >
+      <span className="glide-top">
+        <strong>{fmt(d.sent_at)} IST</strong>
+        <span className={`tag ${d.kind === 'test_send' ? 'tag-audience' : 'tag-format'}`}>
+          {d.kind === 'test_send' ? 'Test send' : 'Monday auto'}
+        </span>
+      </span>
+      <span className="glide-subject">{d.subject}</span>
+      <span className="glide-meta">
+        {d.new_count} new {d.new_count === 1 ? 'event' : 'events'} ·{' '}
+        {d.calendar_count} on calendar · {d.closing_count} flagged
+      </span>
+      <span className="glide-to">to {d.recipient}</span>
+      <span className="glide-foot">
+        {d.has_audio && (
+          <span className="tag tag-format">Voice note · {Math.round(d.audio_seconds ?? 0)}s</span>
+        )}
+        <span className="glide-cta">Open the email →</span>
+      </span>
+    </button>
+  );
 
   return (
     <div className="stack-wrap">
-      {/* Tall enough for the whole fan. The stack grows upward from a low
-          baseline, so without the room the back cards ride over the heading. */}
-      <div className="swap-stage" style={{ height: compact ? 360 : 440 }} role="group" aria-label="Sent digests">
-        <div className="swap-3d">
-          {digests.map((d, i) => (
-            <div
-              key={d.id}
-              ref={(el) => { refs[i].current = el; }}
-              className={`swap-card ${d.id === front?.id ? 'is-front' : ''}`}
-              style={{ width: compact ? 248 : 356, height: compact ? 170 : 184 }}
-              onClick={() => (d.id === front?.id ? setPreviewOpen(true) : bringForward(i))}
-              role="button"
-              tabIndex={0}
-              aria-current={d.id === front?.id}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  if (d.id === front?.id) setPreviewOpen(true); else bringForward(i);
-                }
-              }}
-            >
-              <div className="swap-top">
-                <strong>{fmt(d.sent_at)} IST</strong>
-                <span className={`tag ${d.kind === 'test_send' ? 'tag-audience' : 'tag-format'}`}>
-                  {d.kind === 'test_send' ? 'Test send' : 'Monday auto'}
-                </span>
-              </div>
-              <div className="swap-subject">{d.subject}</div>
-              <div className="swap-meta">
-                {d.new_count} new {d.new_count === 1 ? 'event' : 'events'} ·{' '}
-                {d.calendar_count} on calendar · {d.closing_count} flagged
-              </div>
-              <div className="swap-to">to {d.recipient}</div>
-              {d.has_audio && (
-                <span className="tag tag-format" style={{ alignSelf: 'flex-start' }}>
-                  Voice note · {Math.round(d.audio_seconds ?? 0)}s
-                </span>
-              )}
-              {d.id === front?.id && (
-                <span className="swap-cta">Open the email →</span>
-              )}
-            </div>
-          ))}
+      <div className="glide-rail">
+        <div className="glide-track" style={{ animationDuration: `${seconds}s` }}>
+          {digests.map((d) => card(d, 0))}
+          {digests.map((d) => card(d, 1))}
         </div>
       </div>
 
-      <div className="stack-controls">
-        <button className="chip" onClick={swap} aria-label="Next digest">Swap →</button>
-        <span className="note">{position >= 0 ? position + 1 : 1} of {digests.length}</span>
-        {front?.has_audio && (
-          <a className="chip" href={`/listen/${front.id}`}>Play the voice note →</a>
-        )}
-      </div>
-
-      {/* The preview stays out of sight until a front card is opened, so the
-          page is the stack and nothing else. */}
-      {previewOpen && front && (
+      {open && (
         <div
           className="preview-backdrop"
           role="dialog"
           aria-modal="true"
-          aria-label={`Email preview: ${front.subject}`}
-          onClick={() => setPreviewOpen(false)}
+          aria-label={`Email preview: ${open.subject}`}
+          onClick={() => setOpenId(null)}
         >
           <div className="preview-sheet" onClick={(e) => e.stopPropagation()}>
             <header className="preview-head">
               <div style={{ minWidth: 0 }}>
-                <h2 className="h2" style={{ fontSize: 20 }}>{front.subject}</h2>
+                <h2 className="h2" style={{ fontSize: 20 }}>{open.subject}</h2>
                 <p className="note" style={{ margin: '4px 0 0' }}>
-                  {fmt(front.sent_at)} IST · to {front.recipient} ·{' '}
+                  {fmt(open.sent_at)} IST · to {open.recipient} ·{' '}
                   {loading ? 'loading…' : 'the exact HTML that was delivered'}
                 </p>
               </div>
               <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                {front.has_audio && (
-                  <a className="chip" href={`/listen/${front.id}`}>Voice note →</a>
+                {open.has_audio && (
+                  <a className="chip" href={`/listen/${open.id}`}>Voice note →</a>
                 )}
-                <button className="chip" onClick={() => setPreviewOpen(false)} aria-label="Close preview">
+                <button className="chip" onClick={() => setOpenId(null)} aria-label="Close preview">
                   Close ✕
                 </button>
               </div>
             </header>
             <iframe
-              title={front.subject}
+              title={open.subject}
               srcDoc={html}
               className="preview-frame"
               style={{ opacity: loading ? 0.5 : 1 }}

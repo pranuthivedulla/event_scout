@@ -57,8 +57,8 @@ export default async function Digests({
         <section className="glass-lg col-main">
           <h2 className="h2">Sent digests</h2>
           <p className="note" style={{ marginTop: -4 }}>
-            Click a card behind, or use the arrows, to bring it forward. The
-            preview below follows whichever card is in front.
+            The row glides on its own and stops when you point at it. Click a
+            digest to read the email that was delivered.
           </p>
           {/* The stack owns the preview: a card swap that left the preview on a
               different digest would be worse than the plain list it replaced. */}
