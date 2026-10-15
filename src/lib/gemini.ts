@@ -391,10 +391,13 @@ export interface LinkedInPost {
   author: string | null;
 }
 
+/** An extracted event that knows which post it came from. */
+export type AttributedEvent = ExtractedEvent & { source_post_url: string };
+
 export async function structureLinkedInPosts(
   posts: LinkedInPost[],
   today: string
-): Promise<{ events: ExtractedEvent[]; tokens: number }> {
+): Promise<{ events: AttributedEvent[]; tokens: number }> {
   if (!posts.length) return { events: [], tokens: 0 };
 
   const body = posts
@@ -412,7 +415,8 @@ Return ONLY a JSON array. Include an object ONLY for posts that advertise a
 specific, named, upcoming event. Skip commentary, hiring posts, congratulations,
 recaps of past events, and general thought leadership entirely.
 
-[{"title": "the event's name as the post gives it",
+[{"source_post_url": "the url of the POST you took this from, copied exactly",
+  "title": "the event's name as the post gives it",
   "start_date": "yyyy-mm-dd"|null,
   "end_date": "yyyy-mm-dd"|null,
   "city": "..."|null,
@@ -428,10 +432,27 @@ ${NEVER_GUESS}
   state when the event happens, start_date is null.
 - "Next Thursday" or "this month" is not a date. Only an actual stated date.
 - A post thanking people for a past event is not an upcoming event. Skip it.
+- source_post_url must be copied exactly from the post you read it in. It is
+  how the event is traced back to its source, and an event whose source cannot
+  be traced is dropped rather than shown.
 - If none of the posts advertise an upcoming event, return [].`;
 
   const res = await callGemini({ input });
-  const parsed = extractJSON<ExtractedEvent[]>(res.text);
+  const parsed = extractJSON<(ExtractedEvent & { source_post_url?: string })[]>(res.text);
   const arr = Array.isArray(parsed) ? parsed : [];
-  return { events: arr.filter((e) => e?.title).map(cleanExtracted), tokens: res.tokens };
+
+  // Match each event back to the post it came from by URL, never by position.
+  // Pairing by array index attributed a "National Cooperative Banks Carnival"
+  // to a UBS Forums post about a CISO conclave, because the model skipped
+  // posts and the indexes no longer lined up. Rule 6: never show an event
+  // under a source link that does not contain it.
+  const known = new Map(posts.map((p) => [p.url, p]));
+  const events: AttributedEvent[] = [];
+  for (const e of arr) {
+    if (!e?.title) continue;
+    const url = typeof e.source_post_url === 'string' ? e.source_post_url.trim() : '';
+    if (!known.has(url)) continue; // unattributable, so not shown
+    events.push({ ...cleanExtracted(e), source_post_url: url });
+  }
+  return { events, tokens: res.tokens };
 }

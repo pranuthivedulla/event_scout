@@ -629,17 +629,40 @@ test('the feed gate follows the configured focus areas, not a hard-coded list', 
 
 // ------------------------------------------------------- LinkedIn posts
 
-test('LinkedIn queries are built from Settings, not hard-coded', () => {
+test('LinkedIn queries cover every focus term, in every city', () => {
+  // An early build spent its whole operator budget on event formats and so
+  // searched ONE topic word, "banking" — a payments roundtable or a BFSI
+  // conclave was never fetched at all. The gate downstream is BFSI-wide, but
+  // it can only filter what the search actually returned.
   const qs = buildQueries(settings);
-  assert.equal(qs.length, 3, 'one query per configured city');
-  assert.ok(qs[0].includes('"Bengaluru"'));
-  assert.ok(qs.some((q) => q.includes('"Mumbai"')));
-  assert.ok(qs[0].includes('banking') || qs[0].includes('payments') || qs[0].includes('fintech'));
-  // the actor allows five boolean operators; stay inside that
+
+  for (const city of settings.cities) {
+    assert.ok(qs.some((q) => q.includes(`"${city}"`)), `${city} is never searched`);
+  }
+  for (const term of ['banking', 'payments', 'fintech', 'bfsi']) {
+    assert.ok(qs.some((q) => q.includes(`"${term}"`)), `"${term}" is never searched`);
+  }
+
+  // Over five boolean operators and the actor returns nothing at all, silently.
   for (const q of qs) {
     assert.ok((q.match(/\b(AND|OR|NOT)\b/g) ?? []).length <= 5, `too many operators: ${q}`);
-    assert.ok(q.length <= 500);
+    assert.ok(q.length <= 500, 'the actor caps a query at 500 characters');
   }
+});
+
+test('"bfsi" is searched even though no focus area is named that', () => {
+  // It is what Indian organisers actually title these events.
+  assert.ok(buildQueries(settings).some((q) => q.includes('"bfsi"')));
+});
+
+test('changing the focus areas changes what LinkedIn is searched for', () => {
+  const insurance = {
+    ...settings,
+    focus_areas: [{ name: 'Insurance and reinsurance', level: 'High' as const }],
+  };
+  const qs = buildQueries(insurance);
+  assert.ok(qs.some((q) => q.includes('"insurance"')));
+  assert.ok(!qs.some((q) => q.includes('"payments"')));
 });
 
 test('a post is only worth reading if it advertises an upcoming event here', () => {

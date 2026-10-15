@@ -73,25 +73,47 @@ export interface LinkedInResult {
  * 500 characters per query, so this stays deliberately small.
  */
 export function buildQueries(settings: Settings): string[] {
-  // The actor allows FIVE boolean operators per query. The first version used
-  // seven — four formats OR'd plus three topics OR'd — and the actor answered
-  // every one of them with nothing. Budget: 2 OR + 2 AND = 4.
+  // The actor allows FIVE boolean operators per query. An early version used
+  // seven and the actor answered every one with nothing; the next used four
+  // but spent them all on formats, leaving ONE topic word — "banking" — so a
+  // payments roundtable or a BFSI conclave was never fetched at all. The gate
+  // downstream is BFSI-wide, but it can only filter what the search returned.
+  //
+  // Budget per query: (A OR B OR C) AND (D OR E) AND "City" = 5 operators.
+  // Three formats, two topics, one city. Two queries per city covers the
+  // whole focus list without exceeding the limit on any single one.
   const formats = '("summit" OR "roundtable" OR "conclave")';
 
-  // One topic per query, highest-priority focus area first, so the operator
-  // budget goes on formats rather than on synonyms.
-  const ranked = [...settings.focus_areas].sort((a, b) =>
-    (a.level === 'High' ? 0 : a.level === 'Medium' ? 1 : 2) -
-    (b.level === 'High' ? 0 : b.level === 'Medium' ? 1 : 2)
+  // Distinctive words from the focus areas, highest priority first, plus the
+  // sector's own shorthand. "bfsi" never appears in a focus-area name but is
+  // what Indian organisers actually title these events.
+  const ranked = [...settings.focus_areas].sort(
+    (a, b) =>
+      (a.level === 'High' ? 0 : a.level === 'Medium' ? 1 : 2) -
+      (b.level === 'High' ? 0 : b.level === 'Medium' ? 1 : 2)
   );
-  const topic =
-    ranked
-      .flatMap((f) => f.name.toLowerCase().split(/[^a-z]+/))
-      .find((w) => w.length > 4 && !['large', 'technology', 'digital'].includes(w)) ?? 'banking';
+  const terms = [
+    ...new Set(
+      ranked
+        .flatMap((f) => f.name.toLowerCase().split(/[^a-z]+/))
+        .filter((w) => w.length > 4 && !['large', 'technology', 'digital'].includes(w))
+    ),
+  ];
+  if (!terms.includes('bfsi')) terms.push('bfsi');
+  if (!terms.length) terms.push('banking');
 
-  return settings.cities.slice(0, 3).map(
-    (city) => `${formats} AND "${topic}" AND "${city}"`
-  );
+  // Pair them up: each pair becomes one query, so every term gets searched.
+  const pairs: string[][] = [];
+  for (let i = 0; i < terms.length; i += 2) pairs.push(terms.slice(i, i + 2));
+
+  const queries: string[] = [];
+  for (const city of settings.cities.slice(0, 3)) {
+    for (const pair of pairs) {
+      const topic = pair.map((t) => `"${t}"`).join(' OR ');
+      queries.push(`${formats} AND (${topic}) AND "${city}"`);
+    }
+  }
+  return queries;
 }
 
 function mentionsATargetCity(text: string, cities: string[]): boolean {
@@ -181,11 +203,13 @@ export async function fetchLinkedIn(
 
   const { events: extracted, tokens } = await structureLinkedInPosts(candidates, today);
 
-  const events: ScoutEvent[] = extracted.map((e, i) => ({
+  const events: ScoutEvent[] = extracted.map((e) => ({
     source: sourceKey,
-    // Register should go to a real registration link when the post gives one.
-    // The LinkedIn post itself is the fallback, and it is a working link.
-    source_url: e.event_url ?? candidates[Math.min(i, candidates.length - 1)].url,
+    // Register goes to a real registration link when the post gives one; the
+    // post the event was actually read FROM is the fallback. Never an index
+    // into the candidate list — that mis-attributed events to other people's
+    // posts when the model skipped one.
+    source_url: e.event_url ?? e.source_post_url,
     title: e.title,
     start_date: e.start_date,
     end_date: e.end_date,
