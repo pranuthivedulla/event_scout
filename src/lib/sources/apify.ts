@@ -23,8 +23,21 @@ import { toDisplayDate } from './luma';
 /** Apify actor, overridable without a code change if a better one appears. */
 const ACTOR = process.env.APIFY_ACTOR ?? 'maximedupre~linkedin-events';
 
-/** Never let a scraper run long enough to threaten the Monday run's budget. */
-const TIMEOUT_S = 60;
+/**
+ * Deliberately short, because this actor now reliably times out.
+ *
+ * The spike completed a narrow query in 59s. Re-tested later the same actor
+ * timed out at 60s AND at 90s, with the query narrowed to five keywords. So
+ * LinkedIn has gone from returning nothing to not finishing at all.
+ *
+ * Sources are fetched in parallel, but Promise.all cannot settle until the
+ * slowest one does — a 90s scraper would have put 90s on the Monday run's
+ * critical path for a source that has never returned a single event. 45s
+ * matches how long the Gemini page reads take, so the failure is absorbed by
+ * work that was happening anyway, and the digest still names the source that
+ * failed.
+ */
+const TIMEOUT_S = 45;
 /** Hard cap on billable events per run. */
 const MAX_ITEMS = 60;
 
@@ -109,10 +122,21 @@ export async function fetchApify(
   const token = process.env.APIFY_TOKEN;
   if (!token) throw new Error('not configured');
 
+  // The focus areas drive the query, but as keywords rather than whole
+  // sentences: passing "Banking and core banking technology Payments and
+  // digital payments Fintech and BFSI at large" made the search broad enough
+  // to time out. Distinctive words only, deduplicated.
+  const keywords = [
+    ...new Set(
+      settings.focus_areas
+        .flatMap((f) => f.name.toLowerCase().split(/[^a-z]+/))
+        .filter((w) => w.length > 3 && !['and', 'the', 'large', 'core', 'digital'].includes(w))
+    ),
+  ].slice(0, 5);
+
   const input = {
     target: 'discover',
-    // the focus areas drive what we look for, same as everywhere else
-    searchQuery: settings.focus_areas.map((f) => f.name).join(' ') || 'banking fintech',
+    searchQuery: keywords.join(' ') || 'banking fintech',
     cities: settings.cities,
     eventTiming: 'upcoming',
     eventFormat: 'any', // our own filter excludes purely online; theirs is coarser

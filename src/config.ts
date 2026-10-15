@@ -103,7 +103,14 @@ export const BUILT_IN_SOURCES: SourceDef[] = [
   { key: 'ubs-forums', label: 'UBS Forums', kind: 'page', url: 'https://www.ubsforums.com/', enabled: false },
   { key: 'entraine', label: 'Entraine', kind: 'page', url: 'https://entraine.com/', enabled: false },
   { key: 'gff', label: 'Global Fintech Fest', kind: 'page', url: 'https://globalfintechfest.com/', enabled: false },
-  { key: 'etbfsi-rss', label: 'ETBFSI news feed', kind: 'rss', url: 'https://bfsi.economictimes.indiatimes.com/rss/topstories', enabled: false },
+  /**
+   * News feeds. Enabled, but they are news and not event listings: 78 items
+   * across five feeds in one week contained a single mention of an event and
+   * no BFSI event at all. A plain-code gate runs first, so in a normal week
+   * these cost nothing and simply report what they scanned.
+   */
+  { key: 'etbfsi-rss', label: 'ETBFSI news feed', kind: 'rss', url: 'https://bfsi.economictimes.indiatimes.com/rss/topstories', enabled: true },
+  { key: 'medianama-rss', label: 'Medianama feed', kind: 'rss', url: 'https://www.medianama.com/feed/', enabled: false },
 
   /**
    * LinkedIn via Apify. Enabled, but genuinely optional: spike 9 found the

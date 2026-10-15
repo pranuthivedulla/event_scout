@@ -16,6 +16,7 @@ import { mergeDuplicates, rank, applyCap, fingerprint } from './rank';
 import { fetchLuma } from './sources/luma';
 import { fetchPageSource } from './sources/page';
 import { fetchApify } from './sources/apify';
+import { fetchRss } from './sources/rss';
 import { checkLinks } from './linkcheck';
 import { enrichEvents, scoreEvents } from './gemini';
 import { safeMessage } from './redact';
@@ -95,6 +96,13 @@ export async function stageFetch(
         used = r.tokens;
         if (!r.readable) throw new Error('page could not be read');
         found = r.events;
+      } else if (src.kind === 'rss') {
+        // News feeds, gated in plain code before anything is paid for.
+        const r = await fetchRss(src.key, src.url, today, settings);
+        used = r.tokens;
+        found = r.events;
+        log(`  ${src.label}: ${r.scanned} articles scanned, ${r.candidates} looked like events, ${found.length} extracted`);
+        return { run: { source: src.label, ok: true, error: null, found: found.length, ran_at }, found, tokens: used };
       } else {
         return { run: { source: src.label, ok: false, error: 'source kind not implemented', found: 0, ran_at }, found: [], tokens: used };
       }

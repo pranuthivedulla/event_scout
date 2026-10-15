@@ -16,6 +16,7 @@ import { rank, applyCap, rankValue, mergeDuplicates, fingerprint, sortForDisplay
 import { buildDeadlineScript } from '../src/lib/tts';
 import { redactSecrets, safeMessage } from '../src/lib/redact';
 import { parseScheduleText } from '../src/lib/sources/apify';
+import { parseFeed, looksLikeAnEvent } from '../src/lib/sources/rss';
 import type { ScoutEvent, Settings } from '../src/lib/types';
 
 const TODAY = '2026-10-12'; // a Monday
@@ -605,4 +606,47 @@ test('normaliseTitle strips platform decoration but leaves the title alone', () 
   const e = ev({ title: original });
   mergeDuplicates([e]);
   assert.equal(e.title, original, 'the displayed title is never rewritten');
+});
+
+// ------------------------------------------------------- newsletter feeds
+
+test('feed parsing handles both RSS and Atom', () => {
+  const rss = `<rss><channel>
+    <item><title>Bank to host payments summit</title><link>https://x.test/a</link>
+      <description>Registrations open for the conclave.</description></item>
+    <item><title>No link here</title><description>ignored</description></item>
+  </channel></rss>`;
+  const atom = `<feed><entry><title>Fintech forum announced</title>
+    <link rel="alternate" href="https://x.test/b"/><summary>Save the date.</summary></entry></feed>`;
+
+  assert.equal(parseFeed(rss).length, 1, 'an item with no usable link is dropped');
+  assert.equal(parseFeed(rss)[0].link, 'https://x.test/a');
+  assert.equal(parseFeed(atom).length, 1, 'Atom puts the URL in href');
+  assert.equal(parseFeed(atom)[0].link, 'https://x.test/b');
+});
+
+test('the feed gate needs BOTH an event word and a focus-area term', () => {
+  // The gate is what keeps these feeds free. 78 real articles in a week
+  // produced one event mention and no BFSI event, so anything that reaches
+  // the model has to clear both tests.
+  const yes = 'ETBFSI to host its banking technology summit in Mumbai';
+  const noEvent = 'IDBI Bank shareholders may benefit from the Fairfax stake sale';
+  const noTopic = 'Tonbo Imaging announces a developer meetup in Bengaluru';
+
+  assert.equal(looksLikeAnEvent(yes, settings), true);
+  assert.equal(looksLikeAnEvent(noEvent, settings), false, 'a news story about a bank is not an event');
+  assert.equal(looksLikeAnEvent(noTopic, settings), false, 'an event about nothing in the focus areas is not ours');
+});
+
+test('the feed gate follows the configured focus areas, not a hard-coded list', () => {
+  const insuranceOnly = {
+    ...settings,
+    focus_areas: [{ name: 'Insurance and reinsurance', level: 'High' as const }],
+  };
+  const insurance = 'Insurance leaders conclave announced for Mumbai';
+  const banking = 'Core banking technology summit announced for Mumbai';
+
+  assert.equal(looksLikeAnEvent(insurance, insuranceOnly), true);
+  assert.equal(looksLikeAnEvent(banking, insuranceOnly), false,
+    'editing Settings changes what the feeds are scanned for');
 });
