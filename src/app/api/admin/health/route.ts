@@ -26,7 +26,12 @@ interface Check {
 
 function check(
   name: string,
-  opts: { required?: boolean; expectLength?: number; startsWith?: string; contains?: string; pattern?: RegExp; allowSpaces?: boolean }
+  opts: {
+    required?: boolean; expectLength?: number; startsWith?: string; contains?: string;
+    pattern?: RegExp; allowSpaces?: boolean;
+    /** What an empty value actually MEANS, rather than just "expected". */
+    whenEmpty?: string;
+  }
 ): Check {
   const raw = process.env[name];
   const present = Boolean(raw && raw.length);
@@ -35,7 +40,7 @@ function check(
     return {
       name, present: false,
       ok: opts.required === false,
-      note: opts.required === false ? 'empty, which is expected' : 'MISSING',
+      note: opts.whenEmpty ?? (opts.required === false ? 'empty, which is expected' : 'MISSING'),
     };
   }
 
@@ -81,7 +86,14 @@ export async function GET(req: Request) {
     check('DIGEST_RECIPIENT', { pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ }),
     check('ADMIN_PASSCODE', {}),
     check('CRON_SECRET', { pattern: /^[A-Za-z0-9_-]{16,}$/ }),
-    check('APIFY_TOKEN', { required: false }),
+    // Not required, but no longer harmless: LinkedIn post search is built and
+    // an empty token silently skips it. Saying "expected" here hid exactly
+    // that for a whole production run.
+    check('APIFY_TOKEN', {
+      required: false,
+      startsWith: 'apify_api_',
+      whenEmpty: 'EMPTY — LinkedIn will be skipped. Set it in Vercel for ALL environments, then redeploy.',
+    }),
   ];
 
   const bad = checks.filter((c) => !c.ok);
