@@ -21,12 +21,17 @@ export const maxDuration = 300;
  * is left unenriched keeps its event — only its summary is missing — and the
  * continuation pass fills it in after the digest has gone.
  *
- * Measured in production: at a 130s cutoff the whole run took 177s, so the
- * stages after enrichment cost ~47s. Raised to 170s, which leaves roughly
- * 300 - 170 - 50 (a batch already in flight when the deadline passes) - 47
- * = ~33s of margin, and gets noticeably more events summarised.
+ * Measured in production and re-tuned twice. At a 130s cutoff the run took
+ * 177s. Raised to 170s, it took 267s as the sources grew from 28 events to 36
+ * — only 33s of margin left. Adding LinkedIn puts roughly 20s more on the
+ * fetch stage plus a structuring call, which would have eaten that margin.
+ *
+ * Back to 140s. Enrichment is the only thing a shorter deadline costs, and it
+ * costs summaries, never events: anything unenriched still appears, and the
+ * continuation pass fills it in after the digest has gone. Being killed at
+ * 300s mid-run would cost the whole digest.
  */
-const ENRICH_DEADLINE_MS = 170_000;
+const ENRICH_DEADLINE_MS = 140_000;
 
 /**
  * The Monday run.
