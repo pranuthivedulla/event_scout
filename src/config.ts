@@ -113,10 +113,12 @@ export const BUILT_IN_SOURCES: SourceDef[] = [
   { key: 'medianama-rss', label: 'Medianama feed', kind: 'rss', url: 'https://www.medianama.com/feed/', enabled: false },
 
   /**
-   * LinkedIn via Apify. Enabled, but genuinely optional: spike 9 found the
-   * actor returns zero events for every query including the broadest, and a
-   * second actor timed out twice. It runs, it reports its own result into the
-   * digest's source line, and it is never depended on.
+   * LinkedIn via Apify POST search, not event search. Searching LinkedIn
+   * Events returned nothing — its own log said "No public LinkedIn events were
+   * found", and Gemini's web search agreed none are indexed. The roundtable
+   * Vikram missed was posted, not published as an Event, which is how
+   * invite-only roundtables usually appear. Post search returns those in
+   * about eight seconds.
    */
   { key: 'linkedin', label: 'LinkedIn', kind: 'apify', url: '', enabled: true },
 ];

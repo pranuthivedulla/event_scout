@@ -15,7 +15,7 @@ import { hardFilter, dropSummary, type FilterResult } from './filters';
 import { mergeDuplicates, rank, applyCap, fingerprint } from './rank';
 import { fetchLuma } from './sources/luma';
 import { fetchPageSource } from './sources/page';
-import { fetchApify } from './sources/apify';
+import { fetchLinkedIn } from './sources/linkedin';
 import { fetchRss } from './sources/rss';
 import { checkLinks } from './linkcheck';
 import { enrichEvents, scoreEvents } from './gemini';
@@ -82,9 +82,13 @@ export async function stageFetch(
           log(`  ${src.label}: not configured`);
           return { run: { source: src.label, ok: false, error: 'not configured', found: 0, ran_at }, found: [], tokens: 0 };
         }
-        const found = await fetchApify(src.key, settings);
-        log(`  ${src.label}: ${found.length} events`);
-        return { run: { source: src.label, ok: true, error: null, found: found.length, ran_at }, found, tokens: 0 };
+        const r = await fetchLinkedIn(src.key, settings, today);
+        log(`  ${src.label}: ${r.fetched} posts, ${r.candidates} worth reading, ${r.events.length} events`);
+        return {
+          run: { source: src.label, ok: true, error: null, found: r.events.length, ran_at },
+          found: r.events,
+          tokens: r.tokens,
+        };
       }
 
       let found: ScoutEvent[] = [];

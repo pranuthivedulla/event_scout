@@ -15,8 +15,8 @@ import { hardFilter, matchCity, dropSummary } from '../src/lib/filters';
 import { rank, applyCap, rankValue, mergeDuplicates, fingerprint, sortForDisplay, normaliseTitle } from '../src/lib/rank';
 import { buildDeadlineScript } from '../src/lib/tts';
 import { redactSecrets, safeMessage } from '../src/lib/redact';
-import { parseScheduleText } from '../src/lib/sources/apify';
 import { parseFeed, looksLikeAnEvent } from '../src/lib/sources/rss';
+import { buildQueries, isWorthStructuring } from '../src/lib/sources/linkedin';
 import type { ScoutEvent, Settings } from '../src/lib/types';
 
 const TODAY = '2026-10-12'; // a Monday
@@ -492,30 +492,6 @@ test('an event scored zero still gets its rank value written', () => {
   assert.equal(rank([scoredZero], settings, TODAY)[0].rank_value, 0);
 });
 
-// ------------------------------------------------ LinkedIn schedule parsing
-
-test('LinkedIn schedule text is parsed in code, never guessed', () => {
-  // The brief forbids using a model for date work, and LinkedIn gives dates as
-  // free text. Anything ambiguous must come back null so the hard filter drops
-  // the event with "no date stated" rather than showing an invented day.
-  assert.equal(parseScheduleText('Oct 24, 2026'), '2026-10-24');
-  assert.equal(parseScheduleText('October 24 2026'), '2026-10-24');
-  assert.equal(parseScheduleText('24 Oct 2026'), '2026-10-24');
-  // a UTC timestamp is converted to IST, not sliced: 18:30Z is already the 25th
-  assert.equal(parseScheduleText('2026-10-24T18:30:00Z'), '2026-10-25');
-  assert.equal(parseScheduleText('2026-10-24'), '2026-10-24');
-  assert.equal(parseScheduleText('Thu, Oct 24, 2026, 6:30 PM'), '2026-10-24');
-});
-
-test('unparseable schedule text returns null rather than a guess', () => {
-  assert.equal(parseScheduleText('Next Thursday evening'), null);
-  assert.equal(parseScheduleText('Coming soon'), null);
-  assert.equal(parseScheduleText(''), null);
-  assert.equal(parseScheduleText(null), null);
-  assert.equal(parseScheduleText(undefined), null);
-  assert.equal(parseScheduleText('Feb 30, 2026'), null, 'an impossible date is not a date');
-});
-
 // -------------------------------------------- cross-platform deduplication
 
 test('the same conference on two platforms merges, however it is titled', () => {
@@ -649,4 +625,65 @@ test('the feed gate follows the configured focus areas, not a hard-coded list', 
   assert.equal(looksLikeAnEvent(insurance, insuranceOnly), true);
   assert.equal(looksLikeAnEvent(banking, insuranceOnly), false,
     'editing Settings changes what the feeds are scanned for');
+});
+
+// ------------------------------------------------------- LinkedIn posts
+
+test('LinkedIn queries are built from Settings, not hard-coded', () => {
+  const qs = buildQueries(settings);
+  assert.equal(qs.length, 3, 'one query per configured city');
+  assert.ok(qs[0].includes('"Bengaluru"'));
+  assert.ok(qs.some((q) => q.includes('"Mumbai"')));
+  assert.ok(qs[0].includes('banking') || qs[0].includes('payments') || qs[0].includes('fintech'));
+  // the actor allows five boolean operators; stay inside that
+  for (const q of qs) {
+    assert.ok((q.match(/\b(AND|OR|NOT)\b/g) ?? []).length <= 5, `too many operators: ${q}`);
+    assert.ok(q.length <= 500);
+  }
+});
+
+test('a post is only worth reading if it advertises an upcoming event here', () => {
+  const cities = settings.cities;
+  const good = 'Join us for the BFSI Technology Roundtable in Mumbai on 20 November. Registrations open.';
+  assert.equal(isWorthStructuring(good, cities), true);
+
+  // Measured against 80 real posts: these three shapes were most of what got
+  // through a looser gate, and none of them is an event.
+  assert.equal(
+    isWorthStructuring('We are hiring a Conference Producer for the 3rd BFSI Tech Innovation Summit, Mumbai', cities),
+    false, 'a job ad for conference staff is not an event');
+  assert.equal(
+    isWorthStructuring('ElevenLabs held its first India Summit in Bengaluru this week and the numbers are big', cities),
+    false, 'a recap of a past summit is not an upcoming event');
+  assert.equal(
+    isWorthStructuring('Vikas has been appointed V.P Investment Specialist at YES BANK, Mumbai conclave alumnus', cities),
+    false, 'an appointment notice is not an event');
+});
+
+test('a post with no target city is not worth paying to read', () => {
+  // The hard filter would drop it anyway, so it must not reach the model.
+  assert.equal(
+    isWorthStructuring('Join us for the Banking Technology Summit in Chennai on 20 November', settings.cities),
+    false);
+  assert.equal(
+    isWorthStructuring('Join us for the Banking Technology Summit on 20 November', settings.cities),
+    false, 'no city at all is also not placeable');
+});
+
+test('commentary that merely mentions banking is not an event', () => {
+  assert.equal(isWorthStructuring('Technology may be outsourced, but not the accountability. A bank in Mumbai...', settings.cities), false);
+  assert.equal(isWorthStructuring('', settings.cities), false);
+});
+
+test('a conclave reported as already held is not an upcoming event', () => {
+  // Audited against real output: "partnered ... for the Financial Market
+  // Conclave held on 18 September 2026 at Four Seasons, Mumbai" cleared an
+  // earlier gate, which matched "held its" but not "held on".
+  assert.equal(
+    isWorthStructuring(
+      'BCC&I is proud to have partnered with Union Bank of India as a Diamond Partner for the Financial Market Conclave held on 18 September 2026 at Four Seasons, Mumbai',
+      settings.cities
+    ),
+    false
+  );
 });

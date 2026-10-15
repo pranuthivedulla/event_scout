@@ -371,3 +371,67 @@ function cleanExtracted(e: ExtractedEvent): ExtractedEvent {
     event_url: nonEmpty(e?.event_url),
   };
 }
+
+// --------------------------------------------------------------------------
+// 4. Structure LinkedIn text coming from Apify.
+//
+// The fourth §5 job, and the last to be built. LinkedIn post pages sit behind
+// a login wall, so url_context cannot read them — but Apify returns the post
+// TEXT, and turning prose into fields is exactly what the model is for.
+//
+// Posts are not listings. Most of what a search returns is commentary,
+// congratulations and recaps. The model's first job is to decide whether a
+// post advertises a specific, upcoming, named event at all, and to say no.
+// --------------------------------------------------------------------------
+
+export interface LinkedInPost {
+  url: string;
+  content: string;
+  postedAt: string | null;
+  author: string | null;
+}
+
+export async function structureLinkedInPosts(
+  posts: LinkedInPost[],
+  today: string
+): Promise<{ events: ExtractedEvent[]; tokens: number }> {
+  if (!posts.length) return { events: [], tokens: 0 };
+
+  const body = posts
+    .map((p, i) => `--- POST ${i + 1} ---\nurl: ${p.url}\nposted: ${p.postedAt ?? 'unknown'}\nauthor: ${p.author ?? 'unknown'}\ntext:\n${p.content.slice(0, 1400)}`)
+    .join('\n\n');
+
+  const input = `Each block below is a LinkedIn post. Decide which ones advertise a
+specific upcoming event, and extract only those.
+
+Today is ${today}.
+
+${body}
+
+Return ONLY a JSON array. Include an object ONLY for posts that advertise a
+specific, named, upcoming event. Skip commentary, hiring posts, congratulations,
+recaps of past events, and general thought leadership entirely.
+
+[{"title": "the event's name as the post gives it",
+  "start_date": "yyyy-mm-dd"|null,
+  "end_date": "yyyy-mm-dd"|null,
+  "city": "..."|null,
+  "venue": "..."|null,
+  "format": "in-person"|"hybrid"|"online"|null,
+  "registration_deadline": "yyyy-mm-dd"|null,
+  "organiser": "..."|null,
+  "audience_tag": "..."|null,
+  "event_url": "a registration or event link that appears IN the post text"|null}]
+
+${NEVER_GUESS}
+- The post's own publication date is NOT the event date. If the post does not
+  state when the event happens, start_date is null.
+- "Next Thursday" or "this month" is not a date. Only an actual stated date.
+- A post thanking people for a past event is not an upcoming event. Skip it.
+- If none of the posts advertise an upcoming event, return [].`;
+
+  const res = await callGemini({ input });
+  const parsed = extractJSON<ExtractedEvent[]>(res.text);
+  const arr = Array.isArray(parsed) ? parsed : [];
+  return { events: arr.filter((e) => e?.title).map(cleanExtracted), tokens: res.tokens };
+}
