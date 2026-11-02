@@ -157,3 +157,30 @@ that fails the check means the event is dropped, not shown with a dead link.
 Mondays will have nothing new. The email still sends, still shows "On your calendar",
 and says plainly that nothing new was found — it never pads, and it never implies
 the sources failed when they simply had nothing.
+
+---
+
+## Weekly digest paused (2 Nov 2026)
+
+Paused on request. The `crons` entry was removed from `vercel.json`, so Vercel
+no longer schedules anything. Nothing else changed.
+
+**Still works:** the dashboard, the archive, the voice-note player, and the
+Admin "send digest now" button. Pausing stops the automatic Monday send only.
+
+**It had been running correctly.** Digests went out at 08:10–08:12 IST on
+19 Oct, 26 Oct and 2 Nov — inside the 07:30–08:29 window the schedule was
+chosen to guarantee — each with 15 events and a voice note.
+
+**To resume**, put this back in `vercel.json` and redeploy:
+
+```json
+"crons": [
+  { "path": "/api/cron/monday", "schedule": "0 2 * * 1" }
+]
+```
+
+`0 2 * * 1` is 2 AM UTC Monday. Vercel's free tier fires anywhere inside the
+scheduled hour, which lands it 07:30–08:29 IST — always before 9:00, never
+after. Do not "correct" it to 3 AM UTC to hit 9:00 IST exactly: that window
+straddles 9:00 and would arrive late about half the time.
